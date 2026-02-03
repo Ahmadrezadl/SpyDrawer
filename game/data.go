@@ -1,0 +1,550 @@
+package game
+
+import (
+	"math/rand"
+	"strings"
+	"sync"
+	"time"
+
+	discordemojimap "github.com/Bios-Marcel/discordemojimap/v2"
+	"github.com/gofrs/uuid"
+	"github.com/gorilla/websocket"
+	"golang.org/x/text/cases"
+)
+
+const slotReservationTime = time.Minute * 5
+
+// Lobby represents a game session.
+// FIXME Field visibilities should be changed in case we ever serialize this.
+type Lobby struct {
+	// ID uniquely identified the Lobby.
+	LobbyID string
+
+	*EditableLobbySettings
+
+	// DrawingTimeNew is the new value of the drawing time. If a round is
+	// already ongoing, we can't simply change the drawing time, as it would
+	// screw with the score calculation of the current turn.
+	DrawingTimeNew int
+
+	CustomWords []string
+	words       []string
+
+	// players references all participants of the Lobby.
+	players []*Player
+
+	// Whether the game has started, is ongoing or already over.
+	State gameState
+	// drawer references the Player that is currently drawing.
+	drawer *Player
+	// Owner references the Player that currently owns the lobby.
+	// Meaning this player has rights to restart or change certain settings.
+	Owner *Player
+	// creator is the player that opened a lobby. Initially creator and owner
+	// are set to the same player. While the owner can change throughout the
+	// game, the creator can't.
+	creator *Player
+	// CurrentWord represents the word that was last selected. If no word has
+	// been selected yet or the round is already over, this should be empty.
+	CurrentWord string
+	// wordHints for the current word.
+	wordHints []*WordHint
+	// wordHintsShown are the same as wordHints with characters visible.
+	wordHintsShown []*WordHint
+	// hintsLeft is the amount of hints still available for revelation.
+	hintsLeft int
+	// hintCount is the amount of hints that were initially available
+	//for revelation.
+	hintCount int
+	// Round is the round that the Lobby is currently in. This is a number
+	// between 0 and Rounds. 0 indicates that it hasn't started yet.
+	Round int
+	// wordChoice represents the current choice of words present to the drawer.
+	wordChoice []string
+	Wordpack   string
+	// RoundEndTime represents the time at which the current round will end.
+	// This is a UTC unix-timestamp in milliseconds.
+	RoundEndTime int64
+
+	timeLeftTicker        *time.Ticker
+	scoreEarnedByGuessers int
+	// currentDrawing represents the state of the current canvas. The elements
+	// consist of LineEvent and FillEvent. Please do not modify the contents
+	// of this array an only move AppendLine and AppendFill on the respective
+	// lobby object.
+	currentDrawing []interface{}
+
+	lowercaser cases.Caser
+
+	// SpyDrawer specific fields
+	// CurrentPlayerIndex tracks which player is currently drawing (in the rotation)
+	currentPlayerIndex int
+	// CurrentTurnNumber tracks which turn (1-3) the current player is on
+	currentTurnNumber int
+	// DrawingOrder is the order in which players will draw
+	drawingOrder []*Player
+	// Votes tracks who voted for whom during voting phase
+	votes map[string]string // playerID -> votedForPlayerID
+	// AvailableColors is a pool of colors to assign to players
+	availableColors []RGBColor
+
+	//LastPlayerDisconnectTime is used to know since when a lobby is empty, in case
+	//it is empty.
+	LastPlayerDisconnectTime *time.Time
+
+	mutex *sync.Mutex
+
+	WriteJSON func(player *Player, object interface{}) error
+}
+
+// EditableLobbySettings represents all lobby settings that are editable by
+// the lobby owner after the lobby has already been opened.
+type EditableLobbySettings struct {
+	// MaxPlayers defines the maximum amount of players in a single lobby.
+	MaxPlayers int `json:"maxPlayers"`
+	// CustomWords are additional words that will be used in addition to the
+	// predefined words.
+	// Public defines whether the lobby is being broadcast to clients asking
+	// for available lobbies.
+	Public bool `json:"public"`
+	// EnableVotekick decides whether players are allowed to kick eachother
+	// by casting majority votes.
+	EnableVotekick bool `json:"enableVotekick"`
+	// CustomWordsChance determines the chance of each word being a custom
+	// word on the next word prompt. This needs to be an integer between
+	// 0 and 100. The value represents a percentage.
+	CustomWordsChance int `json:"customWordsChance"`
+	// ClientsPerIPLimit helps preventing griefing by reducing each player
+	// to one tab per IP address.
+	ClientsPerIPLimit int `json:"clientsPerIpLimit"`
+	// DrawingTime is the amount of seconds that each player has available to
+	// finish their drawing.
+	DrawingTime int `json:"drawingTime"`
+	// Rounds defines how many iterations a lobby does before the game ends.
+	// One iteration means every participant does one drawing.
+	Rounds int `json:"rounds"`
+
+	WordsPerRound int `json:"words-per-round"`
+	// NumberOfSpies defines how many spies should be in each round
+	NumberOfSpies int `json:"numberOfSpies"`
+	// VoteDuration is the duration in seconds for the voting phase
+	VoteDuration int `json:"voteDuration"`
+}
+
+type gameState string
+
+const (
+	// Unstarted means the lobby has been opened but never started.
+	Unstarted gameState = "unstarted"
+	// Ongoing means the lobby has already been started.
+	Ongoing gameState = "ongoing"
+	// GameOver means that the lobby had been start, but the max round limit
+	// has already been reached.
+	GameOver gameState = "gameOver"
+	// Voting means players are voting for who they think is the spy
+	Voting gameState = "voting"
+)
+
+// WordHint describes a character of the word that is to be guessed, whether
+// the character should be shown and whether it should be underlined on the
+// UI.
+type WordHint struct {
+	Character rune `json:"character"`
+	Underline bool `json:"underline"`
+}
+
+// RGBColor represents a 24-bit color consisting of red, green and blue.
+type RGBColor struct {
+	R uint8 `json:"r"`
+	G uint8 `json:"g"`
+	B uint8 `json:"b"`
+}
+
+// Line is the struct that a client send when drawing
+type Line struct {
+	FromX     float32  `json:"fromX"`
+	FromY     float32  `json:"fromY"`
+	ToX       float32  `json:"toX"`
+	ToY       float32  `json:"toY"`
+	Color     RGBColor `json:"color"`
+	LineWidth float32  `json:"lineWidth"`
+}
+
+// Fill represents the usage of the fill bucket.
+type Fill struct {
+	X     float32  `json:"x"`
+	Y     float32  `json:"y"`
+	Color RGBColor `json:"color"`
+}
+
+// MaxPlayerNameLength defines how long a string can be at max when used
+// as the playername.
+const MaxPlayerNameLength int = 35
+
+// Player represents a participant in a Lobby.
+type Player struct {
+	// userSession uniquely identifies the player.
+	userSession      string
+	ws               *websocket.Conn
+	socketMutex      *sync.Mutex
+	lastKnownAddress string
+	// disconnectTime is used to kick a player in case the lobby doesn't have
+	// space for new players. The player with the oldest disconnect.Time will
+	// get kicked.
+	disconnectTime *time.Time
+
+	votedForKick map[string]bool
+
+	// ID uniquely identified the Player.
+	ID string `json:"id"`
+	// Name is the players displayed name
+	Name string `json:"name"`
+	// Score is the points that the player got in the current Lobby.
+	Score int `json:"score"`
+	// Connected defines whether the players websocket connection is currently
+	// established. This has previously been in state but has been moved out
+	// in order to avoid losing the state on refreshing the page.
+	// While checking the websocket against nil would be enough, we still need
+	// this field for sending it via the APIs.
+	Connected bool `json:"connected"`
+	// Rank is the current ranking of the player in his Lobby
+	LastScore int         `json:"lastScore"`
+	Rank      int         `json:"rank"`
+	State     PlayerState `json:"state"`
+	// IsSpy indicates if this player is a spy in the current round
+	IsSpy bool `json:"isSpy"`
+	// Color is the unique color assigned to this player for drawing
+	Color RGBColor `json:"color"`
+	// VoteTarget is the player ID this player voted for (during voting phase)
+	VoteTarget string `json:"voteTarget"`
+}
+
+// GetLastKnownAddress returns the last known IP-Address used for an HTTP request.
+func (player *Player) GetLastKnownAddress() string {
+	return player.lastKnownAddress
+}
+
+// SetLastKnownAddress sets the last known IP-Address used for an HTTP request.
+// Can be retrieved via GetLastKnownAddress().
+func (player *Player) SetLastKnownAddress(address string) {
+	player.lastKnownAddress = address
+}
+
+// GetWebsocket simply returns the players websocket connection. This method
+// exists to encapsulate the websocket field and prevent accidental sending
+// the websocket data via the network.
+func (player *Player) GetWebsocket() *websocket.Conn {
+	return player.ws
+}
+
+// SetWebsocket sets the given connection as the players websocket connection.
+func (player *Player) SetWebsocket(socket *websocket.Conn) {
+	player.ws = socket
+}
+
+// GetWebsocketMutex returns a mutex for locking the websocket connection.
+// Since gorilla websockets shits it self when two calls happen at
+// the same time, we need a mutex per player, since each player has their
+// own socket. This getter extends to prevent accidentally sending the mutex
+// via the network.
+func (player *Player) GetWebsocketMutex() *sync.Mutex {
+	return player.socketMutex
+}
+
+// GetUserSession returns the players current user session.
+func (player *Player) GetUserSession() string {
+	return player.userSession
+}
+
+type PlayerState string
+
+const (
+	Guessing PlayerState = "guessing"
+	Drawing  PlayerState = "drawing"
+	Standby  PlayerState = "standby"
+	// Spectator is a connected player that joined mid-round and must wait for the next round.
+	Spectator PlayerState = "spectator"
+)
+
+// GetPlayer searches for a player, identifying them by usersession.
+func (lobby *Lobby) GetPlayer(userSession string) *Player {
+	for _, player := range lobby.players {
+		if player.userSession == userSession {
+			return player
+		}
+	}
+
+	return nil
+}
+
+func (lobby *Lobby) ClearDrawing() {
+	lobby.currentDrawing = make([]interface{}, 0)
+}
+
+// AppendLine adds a line direction to the current drawing. This exists in order
+// to prevent adding arbitrary elements to the drawing, as the backing array is
+// an empty interface type.
+func (lobby *Lobby) AppendLine(line *LineEvent) {
+	lobby.currentDrawing = append(lobby.currentDrawing, line)
+}
+
+// AppendFill adds a fill direction to the current drawing. This exists in order
+// to prevent adding arbitrary elements to the drawing, as the backing array is
+// an empty interface type.
+func (lobby *Lobby) AppendFill(fill *FillEvent) {
+	lobby.currentDrawing = append(lobby.currentDrawing, fill)
+}
+
+func (lobby *Lobby) AppendState() {
+	lobby.currentDrawing = append(lobby.currentDrawing, SaveEvent{Type: "save"})
+}
+
+func createPlayer(name string) *Player {
+	return &Player{
+		Name:         SanitizeName(name),
+		ID:           uuid.Must(uuid.NewV4()).String(),
+		userSession:  uuid.Must(uuid.NewV4()).String(),
+		Score:        0,
+		LastScore:    0,
+		Rank:         1,
+		votedForKick: make(map[string]bool),
+		socketMutex:  &sync.Mutex{},
+		State:        Guessing,
+		Connected:    false,
+		IsSpy:        false,
+		VoteTarget:   "",
+	}
+}
+
+// initializeColors creates a pool of distinct colors for players
+func initializeColors() []RGBColor {
+	return []RGBColor{
+		{R: 255, G: 0, B: 0},     // Red
+		{R: 0, G: 255, B: 0},     // Green
+		{R: 0, G: 0, B: 255},     // Blue
+		{R: 255, G: 255, B: 0},   // Yellow
+		{R: 255, G: 0, B: 255},   // Magenta
+		{R: 0, G: 255, B: 255},   // Cyan
+		{R: 255, G: 128, B: 0},   // Orange
+		{R: 128, G: 0, B: 255},   // Purple
+		{R: 255, G: 192, B: 203}, // Pink
+		{R: 165, G: 42, B: 42},   // Brown
+		{R: 0, G: 128, B: 128},   // Teal
+		{R: 128, G: 128, B: 0},   // Olive
+		{R: 255, G: 165, B: 0},   // Orange
+		{R: 75, G: 0, B: 130},    // Indigo
+		{R: 220, G: 20, B: 60},   // Crimson
+		{R: 50, G: 205, B: 50},   // LimeGreen
+		{R: 255, G: 20, B: 147},  // DeepPink
+		{R: 0, G: 191, B: 255},   // DeepSkyBlue
+		{R: 255, G: 140, B: 0},   // DarkOrange
+		{R: 138, G: 43, B: 226},  // BlueViolet
+		{R: 255, G: 69, B: 0},    // RedOrange
+		{R: 0, G: 250, B: 154},   // MediumSpringGreen
+		{R: 186, G: 85, B: 211},  // MediumOrchid
+		{R: 255, G: 215, B: 0},   // Gold
+	}
+}
+
+// assignColors assigns unique colors to all players
+func assignColors(lobby *Lobby) {
+	if len(lobby.availableColors) == 0 {
+		lobby.availableColors = initializeColors()
+		// Shuffle colors for randomness
+		rand.Shuffle(len(lobby.availableColors), func(i, j int) {
+			lobby.availableColors[i], lobby.availableColors[j] = lobby.availableColors[j], lobby.availableColors[i]
+		})
+	}
+
+	connectedPlayers := make([]*Player, 0)
+	for _, player := range lobby.players {
+		if player.Connected {
+			connectedPlayers = append(connectedPlayers, player)
+		}
+	}
+
+	colorIndex := 0
+	for _, player := range connectedPlayers {
+		if colorIndex < len(lobby.availableColors) {
+			player.Color = lobby.availableColors[colorIndex]
+			colorIndex++
+		}
+	}
+}
+
+// assignSpies randomly assigns spies based on lobby setting
+func assignSpies(lobby *Lobby) {
+	connectedPlayers := make([]*Player, 0)
+	for _, player := range lobby.players {
+		if player.Connected {
+			player.IsSpy = false
+			connectedPlayers = append(connectedPlayers, player)
+		}
+	}
+
+	if len(connectedPlayers) < 2 {
+		return
+	}
+
+	// Use setting if available, otherwise calculate based on player count
+	numSpies := lobby.NumberOfSpies
+	if numSpies <= 0 {
+		// Default: At least 1 spy, but can be more depending on player count
+		numSpies = 1
+		if len(connectedPlayers) >= 4 {
+			if len(connectedPlayers) >= 7 {
+				numSpies = 1 + rand.Intn(3) // 1-3 spies
+			} else {
+				numSpies = 1 + rand.Intn(2) // 1-2 spies
+			}
+		}
+	}
+
+	// Ensure we don't have more spies than players
+	if numSpies >= len(connectedPlayers) {
+		numSpies = len(connectedPlayers) - 1
+	}
+	if numSpies < 1 {
+		numSpies = 1
+	}
+
+	// Randomly select spies
+	spyIndices := rand.Perm(len(connectedPlayers))[:numSpies]
+	for _, idx := range spyIndices {
+		connectedPlayers[idx].IsSpy = true
+	}
+}
+
+//SanitizeName removes invalid characters from the players name, resolves
+//emoji codes, limits the name length and generates a new name if necessary.
+func SanitizeName(name string) string {
+	//We trim and handle emojis beforehand to avoid taking this into account
+	//when checking the name length, so we don't cut off too much of the name.
+	newName := discordemojimap.Replace(strings.TrimSpace(name))
+
+	//We don't want super-long names
+	if len(newName) > MaxPlayerNameLength {
+		return newName[:MaxPlayerNameLength+1]
+	}
+
+	if newName != "" {
+		return newName
+	}
+
+	return generatePlayerName()
+}
+
+// GameEvent contains an eventtype and optionally any data.
+type GameEvent struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}
+
+// GetConnectedPlayerCount returns the amount of player that have currently
+// established a socket connection.
+func (lobby *Lobby) GetConnectedPlayerCount() int {
+	var count int
+	for _, player := range lobby.players {
+		if player.Connected {
+			count++
+		}
+	}
+
+	return count
+}
+
+func (lobby *Lobby) HasConnectedPlayers() bool {
+	lobby.mutex.Lock()
+	defer lobby.mutex.Unlock()
+
+	return lobby.hasConnectedPlayersInternal()
+}
+
+func (lobby *Lobby) hasConnectedPlayersInternal() bool {
+	for _, otherPlayer := range lobby.players {
+		if otherPlayer.Connected {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (lobby *Lobby) IsPublic() bool {
+	return lobby.Public
+}
+
+func (lobby *Lobby) GetPlayers() []*Player {
+	return lobby.players
+}
+
+func (lobby *Lobby) getCreator() *Player {
+	return lobby.creator
+}
+
+// GetOccupiedPlayerSlots counts the available slots which can be taken by new
+// players. Whether a slot is available is determined by the player count and
+// whether a player is disconnect or furthermore how long they have been
+// disconnected for. Therefore the result of this function will differ from
+// Lobby.GetConnectedPlayerCount.
+func (lobby *Lobby) GetOccupiedPlayerSlots() int {
+	var occupiedPlayerSlots int
+	now := time.Now()
+	for _, player := range lobby.players {
+		if player.Connected {
+			occupiedPlayerSlots++
+		} else {
+			disconnectTime := player.disconnectTime
+
+			//If a player hasn't been disconnected for a certain
+			//timeframe, we will reserve the slot. This avoids frustration
+			//in situations where a player has to restart their PC or so.
+			if disconnectTime == nil || now.Sub(*disconnectTime) < slotReservationTime {
+				occupiedPlayerSlots++
+			}
+		}
+	}
+
+	return occupiedPlayerSlots
+}
+
+// HasFreePlayerSlot determines whether the lobby still has a slot for at
+// least one more player. If a player has disconnected recently, the slot
+// will be preserved for 5 minutes. This function should be used over
+// Lobby.GetOccupiedPlayerSlots, as it is potentially faster.
+func (lobby *Lobby) HasFreePlayerSlot() bool {
+	if len(lobby.players) < lobby.MaxPlayers {
+		return true
+	}
+
+	return lobby.GetOccupiedPlayerSlots() < lobby.MaxPlayers
+}
+
+// Synchronized allows running a function while keeping the lobby locked via
+// it's own mutex. This is useful in order to avoid having to relock a lobby
+// multiple times, which might cause unexpected inconsistencies.
+func (lobby *Lobby) Synchronized(logic func()) {
+	lobby.mutex.Lock()
+	defer lobby.mutex.Unlock()
+
+	logic()
+}
+
+func (lobby *Lobby) saveState() {
+	lobby.AppendState()
+}
+
+func (lobby *Lobby) undo() {
+	end := 0
+	for end = len(lobby.currentDrawing) -1;end >= 0;end-- {
+		_ , start := lobby.currentDrawing[end].(SaveEvent)
+		if start {
+			break
+		}
+	}
+	if end != -1 {
+		lobby.currentDrawing = lobby.currentDrawing[0:end]
+	}
+}
+
+

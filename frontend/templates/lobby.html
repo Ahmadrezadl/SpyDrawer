@@ -1,0 +1,2199 @@
+{{define "lobby-page"}}
+<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+
+<head>
+    <title>Bekesh Bekesh</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=0.75 maximum-scale=0.75, user-scalable=0">
+    {{template "font-decl" .}}
+    <link rel="stylesheet" type="text/css" href="{{.RootPath}}/resources/base.css" />
+    <link rel="stylesheet" type="text/css" href="{{.RootPath}}/resources/lobby.css" />
+    <link rel="icon" type="image/png" href="{{.RootPath}}/resources/favicon.png" />
+</head>
+
+<body>
+    <div class="content-wrapper">
+        <noscript><span class="noscript">{{.Translation.Get "requires-js"}}</span></noscript>
+
+        <div id="lobby">
+            <div id="lobby-header">
+                <div id="round-container">
+                    <span>{{.Translation.Get "round"}}&nbsp;</span>
+                    <span id="rounds"></span>
+                    <span id="max-rounds"></span>
+                </div>
+
+                <div id="lobby-header-center-element">
+                    <div>
+                        <!-- this button is basically behaving like a checkbox, but in order to
+                    have a uniform look with the other buttons in the header, we are not using
+                    a checkbox anymore. -->
+                        <button onclick="toggleSound()" class="dialog-button header-button"
+                            alt="{{.Translation.Get "toggle-soundeffects"}}"
+                            title="{{.Translation.Get "toggle-soundeffects"}}">
+                            <img id="sound-toggle-label" class="header-button-image" />
+                        </button>
+                        <button onclick="showNameChangeDialog()" class="dialog-button header-button"
+                            alt="{{.Translation.Get "change-your-name"}}"
+                            title="{{.Translation.Get "change-your-name"}}">
+                            <img src="{{.RootPath}}/resources/user.svg" class="header-button-image" />
+                        </button>
+                        <input class="input-id" contenteditable="false" id="id_text" spellcheck="false" value="لینک اتاق" onclick="copyText()" onmouseenter="setId()" onmouseleave="setDefault()">
+                    </div>
+                    <div id="word-container"></div>
+                    <div>
+                        <button id="kick-button" style="display: none;" onclick="showKickDialog()"
+                            class="dialog-button header-button" alt="{{.Translation.Get "votekick-a-player"}}"
+                            title="{{.Translation.Get "votekick-a-player"}}">
+                            <img src="{{.RootPath}}/resources/kick.png" class="header-button-image" />
+                        </button>
+                        <button id="lobby-settings-button" style="display: none;" onclick="showLobbySettingsDialog()"
+                            class="dialog-button header-button" alt="{{.Translation.Get "change-lobby-settings"}}"
+                            title="{{.Translation.Get "change-lobby-settings"}}">
+                            <img src="{{.RootPath}}/resources/settings.svg" class="header-button-image" />
+                        </button>
+                        <button onclick="undo()"
+                                class="dialog-button header-button" alt="{{.Translation.Get "undo"}}"
+                        title="{{.Translation.Get "undo"}}">
+                        <img src="{{.RootPath}}/resources/undo.png" class="header-button-image" />
+                        </button>
+
+                    </div>
+                </div>
+
+                <div id="time-left">
+                    {{.Translation.Get "time-left"}}:
+                    <div id="time-left-value">∞</div>
+                </div>
+            </div>
+
+            <div id="player-container" style="background-color: rgba(255,255,255,0.5)"></div>
+
+            <div id="drawing-board-wrapper">
+                <div id="drawing-board-inner-wrapper">
+                    <canvas id="drawing-board"></canvas>
+
+                    <!-- The so called "center dialogs" are divs that float above the canvas.
+                    They are are always both horizontally and vertically. They can bever be
+                    as big as the canvas and are usually closable, as long as it makes sense.
+                    The can be seen as a new "window" and prevent touch and pointer events
+                    from reaching the canvas. Technically there could be more than one dialog
+                    visible at a time, but they'll be layered and there's no rule as to how. -->
+                    <div id="center-dialogs">
+                        <div id="word-dialog" class="center-dialog">
+                            <span class="dialog-title">{{.Translation.Get "choose-a-word"}}</span>
+                            <div class="center-dialog-content">
+                                <div class="word-button-container">
+                                    <button id="word-button-zero" class="dialog-button"
+                                        onclick="chooseWord(0)"></button>
+                                    <button id="word-button-one" class="dialog-button"
+                                        onclick="chooseWord(1)"></button>
+                                    <button id="word-button-two" class="dialog-button"
+                                        onclick="chooseWord(2)"></button>
+                                    <button id="word-button-three" class="dialog-button"
+                                            onclick="chooseWord(3)"></button>
+                                    <button id="word-button-four" class="dialog-button"
+                                            onclick="chooseWord(4)"></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="start-dialog" class="center-dialog">
+                            <span class="dialog-title">{{.Translation.Get "start-the-game"}}</span>
+                            <div class="center-dialog-content">
+
+                                <div class="button-center-wrapper">
+                                    <button class="dialog-button" onclick="startGame()">{{.Translation.Get "start"}}</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="unstarted-dialog" class="center-dialog">
+                            <span class="dialog-title">{{.Translation.Get "game-not-started-title"}}</span>
+                            <div class="center-dialog-content">
+                                <div style="display: flex; flex-direction: column;">
+                                    <p>{{.Translation.Get "waiting-for-host-to-start"}}</p>
+                                    {{.Translation.Get "change-your-name"}}:
+                                    <div style="display: flex; flex-direction: row;">
+                                        <input class="namechange-field" type="text"
+                                            id="namechange-field-unstarted-dialog"></input>
+                                        <button class="dialog-button"
+                                            onclick="changeName(document.getElementById('namechange-field-unstarted-dialog').value)">{{.Translation.Get "apply"}}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="waitchoose-dialog" class="center-dialog">
+                            <!-- SpyDrawer: no word selection phase; this dialog is reused for informational messages -->
+                            <span class="dialog-title">لطفا صبر کنید</span>
+                            <div class="center-dialog-content">
+                                <span id="waitchoose-drawer"></span>
+                            </div>
+                        </div>
+
+                        <div id="namechange-dialog" class="center-dialog">
+                            <span class="dialog-title">{{.Translation.Get "change-your-name"}}</span>
+                            <div class="center-dialog-content">
+                                <form onsubmit="changeName(document.getElementById('namechange-field').value);hideNameChangeDialog();return false">
+                                    <input class="namechange-field" type="text" id="namechange-field"></input>
+                                    <div class="button-center-wrapper">
+                                        <button class="dialog-button" type="submit">{{.Translation.Get "save"}}</button>
+                                        <button class="dialog-button" type="button"
+                                            onclick="hideNameChangeDialog()">{{.Translation.Get "close"}}</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div id="lobbysettings-dialog" class="center-dialog">
+                            <span class="dialog-title">{{.Translation.Get "change-lobby-settings"}}</span>
+                            <div class="center-dialog-content">
+                                <div style="display: flex; flex-direction: column;">
+                                    <div class="input-container">
+                                        <b>{{.Translation.Get "drawing-time-setting"}}</b>
+                                        <input id="lobby-settings-drawing-time" class="input-item" type="number"
+                                            name="drawing_time" min="{{.MinDrawingTime}}" max="{{.MaxDrawingTime}}"
+                                            value="{{.DrawingTime}}" />
+                                        <b>{{.Translation.Get "rounds-setting"}}</b>
+                                        <input id="lobby-settings-max-rounds" class="input-item" type="number"
+                                            name="rounds" min="{{.MinRounds}}" max="{{.MaxRounds}}"
+                                            value="{{.Rounds}}" />
+                                        <b>تعداد جاسوس‌ها (0 = خودکار)</b>
+                                        <input id="lobby-settings-number-of-spies" class="input-item" type="number"
+                                            name="number_of_spies" min="0" max="10"
+                                            value="0" />
+                                        <b>مدت زمان رای‌گیری (ثانیه)</b>
+                                        <input id="lobby-settings-vote-duration" class="input-item" type="number"
+                                            name="vote_duration" min="5" max="60"
+                                            value="15" />
+                                        <b>{{.Translation.Get "max-players-setting"}}</b>
+                                        <input id="lobby-settings-max-players" type="number" name="max_players"
+                                            min="{{.MinMaxPlayers}}" max="{{.MaxMaxPlayers}}"
+                                            value="{{.MaxPlayers}}" />
+                                        <b>{{.Translation.Get "public-lobby-setting"}}</b>
+                                        <input id="lobby-settings-public" type="checkbox" name="public" {{if eq
+                                            .Public true}}checked{{end}} />
+                                        <b>{{.Translation.Get "custom-words-chance-setting"}}</b>
+                                        <div style="display: flex;">
+                                            0%
+                                            <input style="flex: 1;" id="lobby-settings-custom-words-chance"
+                                                type="range" name="custom_words_chance" min="1" max="100"
+                                                value="{{.CustomWordsChance}}">
+                                            100%
+                                        </div>
+
+                                        <details class="advanced-section">
+                                            <summary>{{.Translation.Get "advanced-settings"}}</summary>
+                                            <div class="input-container">
+                                                <b>{{.Translation.Get "words-per-round"}}</b>
+
+                                                <input id="lobby-settings-words-per-round" type="number"
+                                                       name="words-per-round" min="{{.MinWordsPerRound}}"
+                                                       max="{{.MaxWordsPerRound}}"
+                                                       value="3" />
+
+                                                <b>{{.Translation.Get "players-per-ip-limit-setting"}}</b>
+                                                <input id="lobby-settings-clients-per-ip-limit" type="number"
+                                                    name="clients_per_ip_limit" min="{{.MinClientsPerIPLimit}}"
+                                                    max="{{.MaxClientsPerIPLimit}}"
+                                                    value="{{.ClientsPerIPLimit}}" />
+                                                <b>{{.Translation.Get "enable-votekick-setting"}}</b>
+                                                <input id="lobby-settings-enable-votekick" type="checkbox"
+                                                    name="enable_votekick" {{if eq .EnableVotekick
+                                                    true}}checked{{end}} />
+                                            </div>
+                                        </details>
+                                        <button class="dialog-button" onclick="saveLobbySettings()"
+                                            style="grid-column-start: 1; grid-column-end: 3;">
+                                            {{.Translation.Get "save-settings"}}
+                                        </button>
+                                    </div>
+                                    <div class="button-center-wrapper">
+                                        <button class="dialog-button"
+                                            onclick="hideLobbySettingsDialog()">{{.Translation.Get "close"}}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="game-over-dialog" class="center-dialog">
+                            <span id="game-over-dialog-title" class="dialog-title">Game over!</span>
+                            <div id="game-over-scoreboard"></div>
+                            <button id="restart-button" class="dialog-button" onclick="reStartGame()">شروع دوباره</button>
+                        </div>
+
+                        <div id="kick-dialog" class="center-dialog">
+                            <span class="dialog-title">{{.Translation.Get "votekick-a-player"}}</span>
+                            <div id="kick-dialog-players"></div>
+                            <button onclick="hideKickDialog()"
+                                class="dialog-button dialog-close-button">{{.Translation.Get "close"}}</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="toolbox">
+                <!-- SpyDrawer: Color picker and color buttons hidden - each player has their own assigned color -->
+                <input id="color-picker" class="toolbox-group" type="color" onchange="setColorFromColorPicker()" value="#000000"
+                    alt="{{.Translation.Get "change-active-color"}}" title="{{.Translation.Get "change-active-color"}}" style="display: none;">
+                <div class="color-button-container toolbox-group"
+                    alt="{{.Translation.Get "change-active-color"}}" title="{{.Translation.Get "change-active-color"}}" style="display: none;">
+                    <!-- These buttons use !important for their color in order
+                to prevent hover and active colors to appear. -->
+                    <div class="color-button-row">
+                        <button class="color-button" style="background-color: #ffffff !Important"
+                            onmousedown="setColor('#ffffff')" onclick="setColor('#ffffff')"></button>
+                        <button class="color-button" style="background-color: #c1c1c1 !Important"
+                            onmousedown="setColor('#c1c1c1')" onclick="setColor('#c1c1c1')"></button>
+                        <button class="color-button" style="background-color: #ef130b !Important"
+                            onmousedown="setColor('#ef130b')" onclick="setColor('#ef130b')"></button>
+                        <button class="color-button" style="background-color: #ff7100 !Important"
+                            onmousedown="setColor('#ff7100')" onclick="setColor('#ff7100')"></button>
+                        <button class="color-button" style="background-color: #ffe400 !Important"
+                            onmousedown="setColor('#ffe400')" onclick="setColor('#ffe400')"></button>
+                        <button class="color-button" style="background-color: #00cc00 !Important"
+                            onmousedown="setColor('#00cc00')" onclick="setColor('#00cc00')"></button>
+                        <button class="color-button" style="background-color: #00b2ff !Important"
+                            onmousedown="setColor('#00b2ff')" onclick="setColor('#00b2ff')"></button>
+                        <button class="color-button" style="background-color: #231fd3 !Important"
+                            onmousedown="setColor('#231fd3')" onclick="setColor('#231fd3')"></button>
+                        <button class="color-button" style="background-color: #a300ba !Important"
+                            onmousedown="setColor('#a300ba')" onclick="setColor('#a300ba')"></button>
+                        <button class="color-button" style="background-color: #d37caa !Important"
+                            onmousedown="setColor('#d37caa')" onclick="setColor('#d37caa')"></button>
+                        <button class="color-button" style="background-color: #a0522d !Important"
+                            onmousedown="setColor('#a0522d')" onclick="setColor('#a0522d')"></button>
+                        <button class="color-button" style="background-color: #592f2a !Important"
+                            onmousedown="setColor('#592f2a')" onclick="setColor('#592f2a')"></button>
+                        <button class="color-button" style="background-color: #ecbcb4 !Important"
+                            onmousedown="setColor('#ecbcb4')" onclick="setColor('#ecbcb4')"></button>
+                    </div>
+                    <div class="color-button-row">
+                        <button class="color-button" style="background-color: #000000 !Important"
+                            onmousedown="setColor('#000000')" onclick="setColor('#000000')"></button>
+                        <button class="color-button" style="background-color: #4c4c4c !Important"
+                            onmousedown="setColor('#4c4c4c')" onclick="setColor('#4c4c4c')"></button>
+                        <button class="color-button" style="background-color: #740b07 !Important"
+                            onmousedown="setColor('#740b07')" onclick="setColor('#740b07')"></button>
+                        <button class="color-button" style="background-color: #c23800 !Important"
+                            onmousedown="setColor('#c23800')" onclick="setColor('#c23800')"></button>
+                        <button class="color-button" style="background-color: #e8a200 !Important"
+                            onmousedown="setColor('#e8a200')" onclick="setColor('#e8a200')"></button>
+                        <button class="color-button" style="background-color: #005510 !Important"
+                            onmousedown="setColor('#005510')" onclick="setColor('#005510')"></button>
+                        <button class="color-button" style="background-color: #00569e !Important"
+                            onmousedown="setColor('#00569e')" onclick="setColor('#00569e')"></button>
+                        <button class="color-button" style="background-color: #0e0865 !Important"
+                            onmousedown="setColor('#0e0865')" onclick="setColor('#0e0865')"></button>
+                        <button class="color-button" style="background-color: #550069 !Important"
+                            onmousedown="setColor('#550069')" onclick="setColor('#550069')"></button>
+                        <button class="color-button" style="background-color: #a75574 !Important"
+                            onmousedown="setColor('#a75574')" onclick="setColor('#a75574')"></button>
+                        <button class="color-button" style="background-color: #63300d !Important"
+                            onmousedown="setColor('#63300d')" onclick="setColor('#63300d')"></button>
+                        <button class="color-button" style="background-color: #492f31 !Important"
+                            onmousedown="setColor('#492f31')" onclick="setColor('#492f31')"></button>
+                        <button class="color-button" style="background-color: #d1a3a4 !Important"
+                            onmousedown="setColor('#d1a3a4')" onclick="setColor('#d1a3a4')"></button>
+                    </div>
+                </div>
+                <!--The following buttons als override onmousedown and onmouseup to make
+                selection more foolproof. This was done, because many people seem to
+                only make half a click (either up or down) in the right location.-->
+                <!-- SpyDrawer: Only pencil tool available, eraser and fill bucket hidden -->
+                <div class="pencil-sizes-container toolbox-group">
+                    <label for="tool-type-pencil">
+                        <input id="tool-type-pencil" class="custom-check-or-radio line-width-button"
+                            onchange="chooseTool(pen)" type="radio" name="tool-type" checked>
+                        <div onmousedown="document.getElementById('tool-type-pencil').click()"
+                            onmouseup="document.getElementById('tool-type-pencil').click()"
+                            class="line-width-button-content">
+                            <span title="{{.Translation.Get "use-pencil"}}" alt="{{.Translation.Get "use-pencil"}}"
+                                id="tool-type-pencil-button" style="font-size: 2rem;">✏️</span>
+                        </div>
+                    </label>
+                    <label for="tool-type-fill" style="display: none;">
+                        <input id="tool-type-fill" class="custom-check-or-radio line-width-button"
+                            onchange="chooseTool(fillBucket)" type="radio" name="tool-type">
+                        <div onmousedown="document.getElementById('tool-type-fill').click()"
+                            onmouseup="document.getElementById('tool-type-fill').click()"
+                            class="line-width-button-content">
+                            <img alt="{{.Translation.Get "use-fill-bucket"}}" title="{{.Translation.Get "use-fill-bucket"}}"
+                                src="{{.RootPath}}/resources/fill.svg" width="40px" height="40px" />
+                        </div>
+                    </label>
+                    <label for="tool-type-rubber" style="display: none;">
+                        <input id="tool-type-rubber" class="custom-check-or-radio line-width-button"
+                            onchange="chooseTool(rubber)" type="radio" name="tool-type">
+                        <div onmousedown="document.getElementById('tool-type-rubber').click()"
+                            onmouseup="document.getElementById('tool-type-rubber').click()"
+                            class="line-width-button-content">
+                            <img alt="{{.Translation.Get "use-eraser"}}" title="{{.Translation.Get "use-eraser"}}"
+                                src="{{.RootPath}}/resources/rubber.svg" width="40px" height="40px" />
+                        </div>
+                    </label>
+                </div>
+                <div class="pencil-sizes-container toolbox-group">
+                    <label for="size-8-button">
+                        <input id="size-8-button" class="custom-check-or-radio line-width-button"
+                            onchange="setLineWidth(8)" type="radio" name="line-width" checked>
+                        <div onmousedown="document.getElementById('size-8-button').click()"
+                            onmouseup="document.getElementById('size-8-button').click()"
+                            class="line-width-button-content"
+                            alt="{{printf (.Translation.Get "change-pencil-size-to") "8"}}"
+                            title="{{printf (.Translation.Get "change-pencil-size-to") "8"}}">
+                            <div class="dot" style="width: 8px; height: 8px"></div>
+                        </div>
+                    </label>
+                    <label for="size-16-button">
+                        <input id="size-16-button" class="custom-check-or-radio line-width-button"
+                            onchange="setLineWidth(16)" type="radio" name="line-width">
+                        <div onmousedown="document.getElementById('size-16-button').click()"
+                            onmouseup="document.getElementById('size-16-button').click()"
+                            class="line-width-button-content"
+                            alt="{{printf (.Translation.Get "change-pencil-size-to") "16"}}"
+                            title="{{printf (.Translation.Get "change-pencil-size-to") "16"}}">
+                            <div class="dot" style="width: 16px; height: 16px"></div>
+                        </div>
+                    </label>
+                    <label for="size-24-button">
+                        <input id="size-24-button" class="custom-check-or-radio line-width-button"
+                            onchange="setLineWidth(24)" type="radio" name="line-width">
+                        <div onmousedown="document.getElementById('size-24-button').click()"
+                            onmouseup="document.getElementById('size-24-button').click()"
+                            class="line-width-button-content"
+                            alt="{{printf (.Translation.Get "change-pencil-size-to") "24"}}"
+                            title="{{printf (.Translation.Get "change-pencil-size-to") "24"}}">
+                            <div class="dot" style="width: 24px; height: 24px"></div>
+                        </div>
+                    </label>
+                    <label for="size-32-button">
+                        <input id="size-32-button" class="custom-check-or-radio line-width-button"
+                            onchange="setLineWidth(32)" type="radio" name="line-width">
+                        <div onmousedown="document.getElementById('size-32-button').click()"
+                            onmouseup="document.getElementById('size-32-button').click()"
+                            class="line-width-button-content"
+                            alt="{{printf (.Translation.Get "change-pencil-size-to") "32"}}"
+                            title="{{printf (.Translation.Get "change-pencil-size-to") "32"}}">
+                            <div class="dot" style="width: 32px; height: 32px"></div>
+                        </div>
+                    </label>
+                </div>
+                <!-- SpyDrawer: Clear canvas button hidden -->
+                <button class="canvas-button toolbox-group" style="font-size: 2rem; display: none;" onclick="clearCanvasAndSendEvent()"
+                    alt="{{.Translation.Get "clear-canvas"}}" title="{{.Translation.Get "clear-canvas"}}">🗑
+                </button>
+
+            </div>
+
+            <div id="chat">
+                <div id="message-container"></div>
+                <form class="message-input-form" onsubmit="return sendMessage()">
+                    <input id="message-input" type="text" autocomplete="off"
+                        placeholder="{{.Translation.Get "message-input-placeholder"}}" />
+                </form>
+            </div>
+        </div>
+
+        {{template "footer" .}}
+    </div>
+
+    <script type="text/javascript" src="{{.RootPath}}/resources/floodfill.js"></script>
+    <script type="text/javascript">
+        var list = []
+
+        String.prototype.format = function() {
+            return [...arguments].reduce((p,c) => p.replace(/%s/,c), this);
+        };
+
+        let socketIsConnecting = false;
+        let hasSocketEverConnected = false;
+        let socket;
+        function connectToWebsocket() {
+            if (socketIsConnecting === true) {
+                return;
+            }
+
+            socketIsConnecting = true;
+
+            if (location.protocol === "https:") {
+                console.log("Attempting secure socket connection on port " + location.port + "...");
+                socket = new WebSocket("wss://" + location.hostname + ":" + location.port + "{{.RootPath}}/v1/ws?lobby_id={{.LobbyID}}");
+            } else {
+                console.log("Attempting socket connection on port " + location.port + "...");
+                socket = new WebSocket("ws://" + location.hostname + ":" + location.port + "{{.RootPath}}/v1/ws?lobby_id={{.LobbyID}}");
+            }
+
+            socket.onerror = error => {
+                //Is not connected and we haven't yet said that we are done trying to
+                //connect, this means that we could never even establish a connection.
+                if (socket.readyState != 1 && !hasSocketEverConnected) {
+                    socketIsConnecting = false;
+                    showTextDialog("connection-error-dialog", 
+                    '{{.Translation.Get "error-connecting"}}',
+                    '{{.Translation.Get "error-connecting-text"}}');
+                    console.log("Error establishing connection: ", error);
+                } else {
+                    console.log("Socket error: ", error)
+                }
+            };
+
+            socket.onopen = () => {
+                hideReconnectDialog();
+                hasSocketEverConnected = true;
+                socketIsConnecting = false;
+
+                socket.onclose = event => {
+                    //We want to avoid handling the error multiple times and showing the incorrect dialogs.
+                    socket.onerror = null;
+
+                    console.log("Socket Closed Connection: ", event);
+                    console.log("Attempting to reestablish socket connection.");
+                    showReconnectDialogIfNotShown();
+                    connectToWebsocket();
+                };
+
+                registerMessageHandler(socket);
+
+                console.log("Successfully Connected");
+                if(localStorage.getItem("username") !== null)
+                {
+                    socket.send(JSON.stringify({
+                        type: "name-change",
+                        data: localStorage.getItem("username"),
+                    }));
+                }
+            };
+        }
+
+        const reconnectDialogId = "reconnect-dialog";
+        function showReconnectDialogIfNotShown() {
+            let previousReconnectDialog = document.getElementById(reconnectDialogId);
+
+            //Since the content is constant, there's no need to ever show two.
+            if (previousReconnectDialog === undefined || previousReconnectDialog === null) {
+                showTextDialog(reconnectDialogId, '{{.Translation.Get "connection-lost"}}',
+                    '{{.Translation.Get "connection-lost-text"}}' );
+            }
+        }
+
+        function hideReconnectDialog() {
+            let previousReconnectDialog = document.getElementById(reconnectDialogId);
+            if (previousReconnectDialog !== undefined && previousReconnectDialog !== null) {
+                centerDialogs.removeChild(previousReconnectDialog);
+            }
+        }
+
+        connectToWebsocket();
+
+
+
+        //In order to avoid automatically canceling the socket connection, we keep
+        //sending dummy events every 5 seconds. This was a problem on Heroku. If
+        //a player took a very long time to choose a word, the connection of all
+        //players could be killed and even cause the lobby being closed. Since
+        //that's very frustrating, we want to avoid that.
+        window.setInterval(() => {
+            socket.send(JSON.stringify({ type: "keep-alive" }));
+        }, 5000);
+
+        //Makes sure that the server notices that the player disconnects.
+        //Otherwise a refresh (on chromium based browsers) can lead to the server
+        //thinking that there's already an open tab with this lobby.
+        window.onbeforeunload = () => {
+            //Avoid unintentionally reestablishing connection.
+            socket.onclose = null;
+            socket.close();
+        };
+
+        
+
+        const messageInput = document.getElementById("message-input");
+        const playerContainer = document.getElementById("player-container");
+        const wordContainer = document.getElementById("word-container");
+        const chat = document.getElementById("chat");
+        const messageContainer = document.getElementById("message-container");
+        const roundSpan = document.getElementById("rounds");
+        const maxRoundSpan = document.getElementById("max-rounds");
+        const timeLeftValue = document.getElementById("time-left-value");
+        const drawingBoard = document.getElementById("drawing-board");
+
+        const colorPicker = document.getElementById("color-picker");
+
+        const centerDialogs = document.getElementById("center-dialogs");
+
+        const unstartedDialog = document.getElementById("unstarted-dialog");
+        const waitChooseDialog = document.getElementById("waitchoose-dialog");
+        const waitChooseDrawerSpan = document.getElementById("waitchoose-drawer");
+        const namechangeDialog = document.getElementById("namechange-dialog");
+        const namechangeFieldUnstartedDialog = document.getElementById("namechange-field-unstarted-dialog");
+        const namechangeFieldStartDialog = document.getElementById("namechange-field-start-dialog");
+        const namechangeField = document.getElementById("namechange-field");
+
+        const lobbySettingsButton = document.getElementById("lobby-settings-button");
+        const kickButton = document.getElementById("kick-button");
+        const lobbySettingsDialog = document.getElementById("lobbysettings-dialog");
+
+        const startDialog = document.getElementById("start-dialog");
+        const gameOverDialog = document.getElementById("game-over-dialog");
+        const gameOverDialogTitle = document.getElementById("game-over-dialog-title");
+        const gameOverScoreboard = document.getElementById("game-over-scoreboard");
+        const restartButton = document.getElementById("restart-button");
+        const wordDialog = document.getElementById("word-dialog");
+        const wordButtonZero = document.getElementById("word-button-zero");
+        const wordButtonOne = document.getElementById("word-button-one");
+        const wordButtonTwo = document.getElementById("word-button-two");
+        const wordButtonThree = document.getElementById("word-button-three");
+        const wordButtonFour = document.getElementById("word-button-four");
+
+        const kickDialog = document.getElementById("kick-dialog");
+        const kickDialogPlayers = document.getElementById("kick-dialog-players");
+
+        const soundToggleLabel = document.getElementById("sound-toggle-label");
+        let sound = localStorage.getItem("sound") !== "false";
+        updateSoundIcon();
+
+        function showTextDialog(id, title, message) {
+            let messageNode = document.createElement("span");
+            messageNode.innerText = message;
+            showDialog(id, title, messageNode);
+        }
+
+        function showDialog(id, title, contentNode) {
+            let newDialog = document.createElement("div");
+            newDialog.classList.add("center-dialog");
+            if (id !== null && id !== "") {
+                newDialog.id = id;
+            }
+
+            let dialogTitle = document.createElement("span");
+            dialogTitle.classList.add("dialog-title");
+            dialogTitle.innerText = title;
+            newDialog.appendChild(dialogTitle);
+
+            let dialogContent = document.createElement("div");
+            dialogContent.classList.add("center-dialog-content");
+            dialogContent.appendChild(contentNode);
+            newDialog.appendChild(dialogContent);
+
+            newDialog.style.visibility = "visible";
+            centerDialogs.appendChild(newDialog);
+        }
+
+        function showKickDialog() {
+            if (votekickEnabled !== true) {
+                //Should never show, as this method should never be called anyways.
+                //Anyways, in case of a bug or forcefully calling this, we still
+                //intend to inform the user.
+                alert("Votekicking isn't enabled in this lobby.");
+                return;
+            }
+
+            if (cachedPlayers && cachedPlayers) {
+                kickDialogPlayers.innerHTML = "";
+
+                cachedPlayers.forEach(player => {
+                    //Don't wanna allow kicking ourselves.
+                    if (player.id !== ownID && player.connected) {
+                        let playerKickEntry = document.createElement("button");
+                        playerKickEntry.classList.add("kick-player-button");
+                        playerKickEntry.onclick = () => onVotekickPlayer(player.id);
+                        playerKickEntry.innerText = player.name;
+                        kickDialogPlayers.appendChild(playerKickEntry);
+                    }
+                });
+
+                kickDialog.style.visibility = "visible";
+            }
+        }
+
+        function hideKickDialog() {
+            kickDialog.style.visibility = "hidden";
+        }
+
+        function showNameChangeDialog() {
+            namechangeDialog.style.visibility = "visible";
+            namechangeField.focus();
+        }
+
+        function hideNameChangeDialog() {
+            namechangeDialog.style.visibility = "hidden";
+        }
+
+        function changeName(name) {
+            //Avoid unnecessary traffic.
+            if (name !== ownName) {
+                socket.send(JSON.stringify({
+                    type: "name-change",
+                    data: name,
+                }));
+            }
+            localStorage.setItem("username", name);
+        }
+
+        function setUsernameLocally(name) {
+            ownName = name;
+            namechangeFieldUnstartedDialog.value = name;
+            namechangeField.value = name;
+        }
+
+        function showLobbySettingsDialog() {
+            lobbySettingsDialog.style.visibility = "visible";
+        }
+
+        function hideLobbySettingsDialog() {
+            lobbySettingsDialog.style.visibility = "hidden";
+        }
+
+        function saveLobbySettings() {
+            fetch("{{.RootPath}}/v1/lobby?" + new URLSearchParams({
+                lobby_id: '{{.LobbyID}}',
+                drawing_time: document.getElementById("lobby-settings-drawing-time").value,
+                rounds: document.getElementById("lobby-settings-max-rounds").value,
+                public: document.getElementById("lobby-settings-public").checked,
+                enable_votekick: document.getElementById("lobby-settings-enable-votekick").checked,
+                max_players: document.getElementById("lobby-settings-max-players").value,
+                clients_per_ip_limit: document.getElementById("lobby-settings-clients-per-ip-limit").value,
+                custom_words_chance: document.getElementById("lobby-settings-custom-words-chance").value,
+                words_per_round: document.getElementById("lobby-settings-words-per-round").value,
+                number_of_spies: document.getElementById("lobby-settings-number-of-spies").value,
+                vote_duration: document.getElementById("lobby-settings-vote-duration").value
+            }), {
+                method: 'PATCH',
+            })
+                .then(result => {
+                    if (result.status === 200) {
+                        hideLobbySettingsDialog();
+                    } else {
+                        result
+                            .text()
+                            .then(bodyText => {
+                                alert("Error saving lobby settings: \n\n - " + bodyText.replace(";", "\n - "));
+                            });
+                    }
+                });
+        }
+
+        function toggleSound() {
+            sound = !sound;
+            localStorage.setItem("sound", sound.toString());
+            updateSoundIcon();
+        }
+
+        function updateSoundIcon() {
+            if (sound) {
+                soundToggleLabel.src = "{{.RootPath}}/resources/sound.svg";
+            } else {
+                soundToggleLabel.src = "{{.RootPath}}/resources/no-sound.svg";
+            }
+        }
+
+        //The drawing board has a base size. This base size results in a certain ratio
+        //that the actual canvas has to be resized accordingly too. This is needed
+        //since not every client has the same screensize.
+        let baseWidth = {{.DrawingBoardBaseWidth}};
+        let baseHeight = {{.DrawingBoardBaseHeight}};
+        let boardRatio = baseWidth / baseHeight;
+
+        // Moving this here to extract the context after resizing
+        const context = drawingBoard.getContext("2d");
+
+        function scaleUpFactor() {
+            return baseWidth / drawingBoard.clientWidth;
+        }
+
+        //scalesUp the value using scaleUpFactor and reduces the precision.
+        //This makes sense since we absolutely don't need the precision and
+        //we'll reduce network traffic this way.
+        function scaelUpAndPrepareFloatForServer(value) {
+            //We reduce the precision in multiple steps, since we get a string
+            //as an intermediate result. The reason we don't want a string, is
+            //that unmarshalling on the backend won't work with strings for float
+            //values, unless explicitly specified, which however will cause it
+            //not to work without quotes. Example:
+            //  123.213476124918724 -> "123.21" -> 123.21
+            return parseFloat((scaleUpFactor() * value).toFixed(2));
+        }
+
+        function scaleDownFactor() {
+            return drawingBoard.clientWidth / baseWidth;
+        }
+
+        const pen = 0;
+        const rubber = 1;
+        const fillBucket = 2;
+
+        let allowDrawing = false;
+
+        //Initially, we require some values to avoid running into nullpointers
+        //or undefined errors. The specific values don't really matter.
+        let localTool = pen;
+        let localLineWidth = 8;
+        let localLineWidthUnscaled = 8;
+
+        //Those are not scaled for now, as the whole toolbar would then have to incorrectly size up and down.
+        let sizeButton8 = document.getElementById("size-8-button");
+        let sizeButton16 = document.getElementById("size-16-button");
+        let sizeButton24 = document.getElementById("size-24-button");
+        let sizeButton32 = document.getElementById("size-32-button");
+
+        let toolButtonPen = document.getElementById("tool-type-pencil");
+        let toolButtonRubber = document.getElementById("tool-type-rubber");
+        let toolButtonFill = document.getElementById("tool-type-fill");
+
+        let requestedForRedraw = false
+
+        //We use the states present in UI elements, since in case of
+        //hitting F5(Refresh), the browser will not reset these states to the
+        //initial values defined in the HTML.
+        //The necessary cursor update implicitly happens with setLineWidth.
+        let localColor = hexStringToRgbColorObject(colorPicker.value);
+
+        if (sizeButton8.checked) {
+            setLineWidth(8);
+        } else if (sizeButton16.checked) {
+            setLineWidth(16);
+        } else if (sizeButton24.checked) {
+            setLineWidth(24);
+        } else if (sizeButton32.checked) {
+            setLineWidth(32);
+        }
+
+        // SpyDrawer: Always use pencil tool (eraser and fill bucket are disabled)
+        toolButtonPen.checked = true;
+        chooseTool(pen);
+
+        // SpyDrawer: Color changing disabled - players use their assigned color
+        function setColorFromColorPicker() {
+            // Do nothing - color is set from player's assigned color
+        }
+        
+        function setColor(color) {
+            // Do nothing - color is set from player's assigned color
+        }
+
+        function setColorWithoutUpdatingColorPicker(color) {
+            // SpyDrawer: Only allow setting color from player's assigned color
+            // This function is still called internally but color changes are ignored
+            // The actual color is set from the player's assigned color in applyPlayers
+            if (color) {
+                localColor = hexStringToRgbColorObject(color);
+            }
+
+            if (localTool === rubber) {
+                //Hack to correct selection. Doesn't automatically trigger chooseTool(pen).
+                toolButtonPen.click();
+                chooseTool(pen);
+                //Cursor update is implicit.
+            } else {
+                updateCursor();
+            }
+        }
+
+        function setLineWidth(value) {
+            localLineWidthUnscaled = value;
+            localLineWidth = value * scaleDownFactor();
+            updateCursor();
+        }
+
+        function chooseTool(value) {
+            // SpyDrawer: Only allow pencil tool (eraser and fill bucket are disabled)
+            if (value === pen) {
+                localTool = pen;
+            } else {
+                // Force pencil tool if eraser or fill bucket is somehow selected
+                localTool = pen;
+                toolButtonPen.checked = true;
+            }
+            updateCursor();
+        }
+
+        //We accept both #RRGGBB and RRGGBB. Both are treated case insensitive.
+        function hexStringToRgbColorObject(hexString) {
+            const hexColorsRegex = /#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})/i;
+            const match = hexString.match(hexColorsRegex)
+            return {r: parseInt(match[1], 16), g: parseInt(match[2], 16), b: parseInt(match[3], 16)};
+        }
+
+        function rgbColorObjectToHexString(color) {
+            return "#"
+                + numberTo16BitHexadecimal(color.r)
+                + numberTo16BitHexadecimal(color.g)
+                + numberTo16BitHexadecimal(color.b);
+        }
+        
+        function numberTo16BitHexadecimal(number) {
+            return Number(number).toString(16).padStart(2, "0");
+        }
+
+        const rubberColor = {r: 255, g: 255, b: 255};
+
+        function updateCursor() {
+            if (allowDrawing) {
+                if (localTool === rubber) {
+                    setCircleCursor(rubberColor, localLineWidth);
+                } else if (localTool === fillBucket) {
+                    const outerColor = getComplementaryCursorColor(localColor);
+                    drawingBoard.style.cursor = `url('data:image/svg+xml;utf8,`
+                        + encodeURIComponent(
+                            `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="32" width="32">`
+                            + generateSVGCircle(8, localColor, outerColor)
+                            + `<path d="M8.583 22.081a4.913 5.083 0 0 0 1.449-3.618 4.437 4.59 0 0 1 4.433-4.585h2.022a.391.404 0 0 1 .276.69l-1.547 1.6a.391.404 0 0 0 0 .572l3.299 3.412a.391.404 0 0 1 .115.286v1.323a.977 1.011 0 0 1-.977 1.011.195.202 0 0 0-.195.202V25.4a1.368 1.415 0 0 1-2.736 0v-.606a.391.404 0 0 0-.782 0v2.628a1.368 1.415 0 0 1-2.736 0v-1.415a.391.404 0 0 0-.782 0v3.032a1.759 1.819 0 0 1-3.517 0V26.27a5.689 5.885 0 0 1 1.678-4.19zm4.966-.927a.782.809 0 0 0 1.563 0v-1.213a.782.809 0 0 0-1.563 0zm1.563 8.691a.977 1.011 0 1 0 1.95-.118 2.42 2.504 0 0 0-.69-1.422.387.401 0 0 0-.566 0 2.33 2.41 0 0 0-.693 1.54z" fill="#c4a2fc"/><path d="M14.988 15.596l5.529-5.721V8.218a2.345 2.426 0 0 1 4.689 0v2.975l5.586 5.778a1.174 1.215 0 0 1 0 1.715l-6.409 6.63a1.174 1.215 0 0 1-1.658 0l-7.738-8.004a1.172 1.213 0 0 1 .001-1.715zm9.437-7.378a1.563 1.617 0 0 0-3.126 0v.849l.098-.101a1.2 1.241 0 0 1 1.658 0l1.37 1.419zm-.346 2.951l-1.055 1.091 4.533 4.691 1.086-1.061zm-8.536 5.571l7.738 8.004a.391.404 0 0 0 .553 0l6.409-6.63a.391.404 0 0 0 0-.572l-1.046-1.078-1.376 1.347a.391.404 0 0 1-.545-.008l-5.08-5.255a.391.404 0 0 1 0-.572l1.331-1.377-1.024-1.059a.4.414 0 0 0-.553 0l-.651.673v3.74a1.172 1.213 0 1 1-.782 0V11.02l-4.975 5.148a.391.404 0 0 0 0 .572zm5.366-2.054a.391.404 0 1 0 .391.404.391.404 0 0 0-.391-.404z" fill="#151a6a"/></svg>`
+                        )
+                        + `') 4 4, auto`;
+                } else {
+                    setCircleCursor(localColor, localLineWidth);
+                }
+            } else {
+                drawingBoard.style.cursor = 'not-allowed';
+            }
+        }
+
+        function getComplementaryCursorColor(innerColor) {
+            const hsp = Math.sqrt(
+                0.299 * (innerColor.r * innerColor.r) +
+                0.587 * (innerColor.g * innerColor.g) +
+                0.114 * (innerColor.b * innerColor.b)
+            );
+
+            if (hsp > 127.5) {
+                return {r: 0, g: 0, b: 0};
+            }
+
+            return  {r: 255, g: 255, b: 255};
+        }
+
+        function setCircleCursor(innerColor, size) {
+            const outerColor = getComplementaryCursorColor(innerColor);
+
+            let circleSize = size * scaleUpFactor();
+            drawingBoard.style.cursor = `url('data:image/svg+xml;utf8,`
+                + encodeURIComponent(
+                    `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="32" height="32">`
+                    + generateSVGCircle(circleSize, innerColor, outerColor) + `</svg>')`
+                )
+                + ` ` + (circleSize / 2) + ` ` + (circleSize / 2) + `, auto`;
+        }
+
+        function generateSVGCircle(circleSize, innerColor, outerColor) {
+            let circleRadius = (circleSize / 2);
+            let innerColorCSS = "rgb(" + innerColor.r + "," + innerColor.g + "," + innerColor.b + ")";
+            let outerColorCSS = "rgb(" + outerColor.r + "," + outerColor.g + "," + outerColor.b + ")";
+            return `<circle cx="` + circleRadius + `" cy="` + circleRadius + `" r="` + circleRadius + `" style="fill: ` + innerColorCSS + `; stroke: ` + outerColorCSS + `;"/>`;
+        }
+
+        function startGame() {
+            socket.send(JSON.stringify({
+                type: "start",
+            }));
+        }
+
+        function reStartGame(){
+            socket.send(JSON.stringify({
+                type: "start",
+            }));
+        }
+
+        function clearCanvasAndSendEvent() {
+            if (allowDrawing) {
+                //Avoid unnecessary traffic back to us and handle the clear directly.
+                clear(context);
+                clearList();
+                socket.send(JSON.stringify({
+                    type: "clear-drawing-board"
+                }));
+            }
+        }
+
+        function sendMessage() {
+            socket.send(JSON.stringify({
+                type: "message",
+                data: messageInput.value
+            }));
+            messageInput.value = "";
+
+            // Necessary in order to keep the page from submitting.
+            return false;
+        }
+
+        function chooseWord(index) {
+            socket.send(JSON.stringify({
+                type: "choose-word",
+                data: index
+            }));
+            allowDrawing = true;
+            updateCursor();
+            wordDialog.style.visibility = "hidden";
+        }
+
+        function onVotekickPlayer(playerId) {
+            socket.send(JSON.stringify({
+                type: "kick-vote",
+                data: playerId
+            }));
+            hideKickDialog();
+        }
+
+        function redrawCanvas(){
+            clear(context)
+            list.forEach(drawData => {
+                console.log(drawData);
+                if(drawData.type === "line")
+                {
+                    drawLine(context, drawData.data.fromX * scaleDownFactor(), drawData.data.fromY * scaleDownFactor(), drawData.data.toX * scaleDownFactor(), drawData.data.toY * scaleDownFactor(), drawData.data.color, drawData.data.lineWidth * scaleDownFactor());
+
+                }
+                else if(drawData.type === "fill")
+                {
+                    context.fillFlood(drawData.data.x * scaleDownFactor(), drawData.data.y * scaleDownFactor(), drawData.data.color);
+                }
+            });
+        }
+
+        //This automatically scrolls down the chat on arrivals of new messages
+        new MutationObserver(() => messageContainer.scrollTop = messageContainer.scrollHeight)
+            .observe(messageContainer, {
+                attributes: false,
+                childList: true,
+                subtree: false
+            });
+
+        let ownID, ownerID, ownName, drawerID, drawerName;
+        let round = 0;
+        let rounds = 0;
+        let roundEndTime = 0;
+        let gameState = "unstarted";
+        let votekickEnabled;
+        let currentWord = ""; // Store current word to persist display
+        let isSpyPlayer = false; // Track if current player is a spy
+        let joinedMidRound = false; // Track if player joined mid-round
+        
+        // Function to update word display
+        function updateWordDisplay(wordLengthOverride) {
+            if (!wordContainer) {
+                console.log("SpyDrawer: wordContainer not found");
+                return;
+            }
+            
+            console.log("SpyDrawer: updateWordDisplay called", {
+                isSpyPlayer: isSpyPlayer,
+                currentWord: currentWord,
+                wordLengthOverride: wordLengthOverride
+            });
+            
+            if (isSpyPlayer) {
+                const wordLength = wordLengthOverride || (currentWord ? currentWord.length : 0);
+                if (wordLength > 0) {
+                    const dashes = "─".repeat(wordLength);
+                    wordContainer.innerHTML = "<span style='color: red; font-weight: bold;'>شما جاسوس هستید! کلمه: " + dashes + " (" + wordLength + " حرف)</span>";
+                } else {
+                    console.log("SpyDrawer: No word length available for spy");
+                    wordContainer.innerHTML = "<span style='color: orange;'>در حال بارگذاری...</span>";
+                }
+            } else {
+                const wordToShow = currentWord || "";
+                if (wordToShow) {
+                    wordContainer.innerHTML = "<span style='font-weight: bold;'>کلمه: " + wordToShow + "</span>";
+                } else {
+                    console.log("SpyDrawer: No word available for non-spy, currentWord:", currentWord);
+                    wordContainer.innerHTML = "<span style='color: orange;'>در حال بارگذاری کلمه...</span>";
+                }
+            }
+        }
+
+        function undoList() {
+            while(true) {
+                if(list.length === 0)
+                    break;
+                popped = list.pop()
+                if(popped.type==="save")
+                    break;
+            }
+            redrawCanvas()
+        }
+
+        function clearList() {
+            while(list.length !== 0) list.pop()
+        }
+
+        function registerMessageHandler(targetSocket) {
+            targetSocket.onmessage = event => {
+                let parsed = JSON.parse(event.data);
+                if (parsed.type === "ready") {
+                    handleReadyEvent(parsed.data);
+                } else  if (parsed.type === "game-over") {
+                    let ready = parsed.data;
+                    showRoundEndMessage(ready.previousWord);
+                    handleReadyEvent(ready);
+                } else if (parsed.type === "update-players") {
+                    applyPlayers(parsed.data);
+                } else if (parsed.type === "name-change") {
+                    const playernameSpan = document.getElementById("playername-" + parsed.data.playerId);
+                    if (playernameSpan !== null) {
+                        playernameSpan.innerText = parsed.data.playerName;
+                    }
+                    if (parsed.data.playerId === ownID) {
+                        setUsernameLocally(parsed.data.playerName);
+                    }
+                    if (parsed.data.playerId === drawerID) {
+                        waitChooseDrawerSpan.innerText = parsed.data.playerName;
+                    }
+                } else if (parsed.type === "correct-guess") {
+                    playWav('{{.RootPath}}/resources/plop.wav');
+
+                    if (parsed.data === ownID) {
+                        appendMessage("correct-guess-message", null, '{{.Translation.Get "correct-guess"}}');
+                    } else {
+                        for (let i = 0; i < cachedPlayers.length; i++) {
+                            let player = cachedPlayers[i];
+                            if (player.id === parsed.data) {
+                                appendMessage("correct-guess-message", null, '{{.Translation.Get "correct-guess-other-player"}}'.format(player.name));
+                                break;
+                            }
+                        }
+                    }
+                } else if (parsed.type === "close-guess") {
+                    appendMessage("close-guess-message", null, '{{.Translation.Get "close-guess"}}'.format(parsed.data));
+                } else if (parsed.type === "update-wordhint") {
+                    // SpyDrawer: word-container is driven by word hints.
+                    // Don't hide the mid-round join message.
+                    if (!joinedMidRound) {
+                        waitChooseDialog.style.visibility = "hidden";
+                    }
+                    applyWordHints(parsed.data);
+                } else if (parsed.type === "message") {
+                    appendMessage(null, parsed.data.author, parsed.data.content);
+                } else if (parsed.type === "system-message") {
+                    appendMessage("system-message", '{{.Translation.Get "system"}}', parsed.data);
+                } else if (parsed.type === "non-guessing-player-message") {
+                    appendMessage("non-guessing-player-message", parsed.data.author, parsed.data.content);
+                } else if (parsed.type === "line") {
+                    drawLine(context, parsed.data.fromX * scaleDownFactor(), parsed.data.fromY * scaleDownFactor(), parsed.data.toX * scaleDownFactor(), parsed.data.toY * scaleDownFactor(), parsed.data.color, parsed.data.lineWidth * scaleDownFactor());
+                    list.push(parsed);
+                } else if(parsed.type ==="save"){
+                    list.push({type:"save"})
+                } else if (parsed.type === "fill") {
+                    list.push(parsed)
+                    context.fillFlood(parsed.data.x * scaleDownFactor(), parsed.data.y * scaleDownFactor(), parsed.data.color);
+                } else if (parsed.type === "clear-drawing-board") {
+                    clear(context);
+                    clearList();
+                }
+                else if (parsed.type === "undo") {
+                    undoList()
+                } else if (parsed.type === "round-start") {
+                    // SpyDrawer: Round has started
+                    unstartedDialog.style.visibility = "hidden";
+                    startDialog.style.visibility = "hidden";
+                    restartButton.style.display = "none";
+                    gameOverDialog.style.visibility = "hidden";
+                    wordDialog.style.visibility = "hidden";
+                    waitChooseDialog.style.visibility = "hidden";
+
+                    clear(context);
+                    clearList();
+                    gameState = "ongoing";
+                    round = parsed.data.round;
+                    joinedMidRound = false; // Reset mid-round join status for new round
+                    updateRoundsDisplay();
+                    applyPlayers(parsed.data.players);
+
+                    // Show word to non-spies, dashes for spies
+                    isSpyPlayer = parsed.data.isSpy === true;
+                    const word = parsed.data.word || "";
+                    const wordLength = parsed.data.wordLength || 0;
+                    
+                    console.log("SpyDrawer: round-start event", {
+                        word: word,
+                        wordLength: wordLength,
+                        isSpy: isSpyPlayer
+                    });
+                    
+                    if (word) {
+                        currentWord = word; // Store for persistence
+                    }
+                    
+                    // Always update word display (pass wordLength for spies)
+                    updateWordDisplay(isSpyPlayer ? wordLength : null);
+
+                    allowDrawing = false;
+                    updateCursor();
+                } else if (parsed.type === "turn-toast") {
+                    // Show toast notification
+                    showToast(parsed.data.message, parsed.data.isYourTurn ? 5000 : 3000);
+                } else if (parsed.type === "drawing-turn") {
+                    // SpyDrawer: A new drawing turn has started
+                    setRoundEndTime(parsed.data.roundEndTime);
+                    applyPlayers(parsed.data.players);
+                    
+                    const drawer = parsed.data.players.find(p => p.id === parsed.data.drawer);
+                    if (drawer) {
+                        drawerID = drawer.id;
+                        drawerName = drawer.name;
+                    }
+
+                    // Update word display - always show for non-spies, dashes for spies
+                    const ownPlayer = parsed.data.players ? parsed.data.players.find(p => p.id === ownID) : null;
+                    
+                    // Update spy status
+                    if (ownPlayer) {
+                        isSpyPlayer = ownPlayer.isSpy === true;
+                    }
+                    
+                    // Get word from event or use stored word
+                    const wordFromEvent = parsed.data.currentWord || "";
+                    const wordLength = parsed.data.wordLength || 0;
+                    
+                    console.log("SpyDrawer: drawing-turn event", {
+                        wordFromEvent: wordFromEvent,
+                        wordLength: wordLength,
+                        isSpy: isSpyPlayer,
+                        ownPlayer: ownPlayer
+                    });
+                    
+                    if (wordFromEvent) {
+                        currentWord = wordFromEvent; // Store for persistence
+                    }
+                    
+                    // Always update word display (pass wordLength for spies)
+                    updateWordDisplay(isSpyPlayer ? wordLength : null);
+
+                    if (parsed.data.drawer === ownID && !joinedMidRound) {
+                        playWav('{{.RootPath}}/resources/your-turn.wav');
+                        allowDrawing = true;
+                    } else {
+                        allowDrawing = false;
+                        // If joined mid-round, show message
+                        if (joinedMidRound && parsed.data.drawer === ownID) {
+                            waitChooseDialog.style.visibility = "visible";
+                            waitChooseDrawerSpan.innerHTML = "شما از وسط راند وارد بازی شدید<br>نمی‌توانید نقاشی کنید";
+                        }
+                    }
+                    updateCursor();
+                } else if (parsed.type === "round-canceled") {
+                    // SpyDrawer: Round was canceled (e.g., spy disconnected)
+                    appendMessage("system-message", null, parsed.data.reason || "راند لغو شد");
+                    clear(context);
+                    clearList();
+                    waitChooseDialog.style.visibility = "hidden";
+                    applyPlayers(parsed.data.players);
+                } else if (parsed.type === "voting-start") {
+                    // SpyDrawer: Voting phase has started
+                    gameState = "voting";
+                    allowDrawing = false;
+                    updateCursor();
+                    setRoundEndTime(parsed.data.roundEndTime);
+                    applyPlayers(parsed.data.players);
+                    // Don't show voting dialog if player joined mid-round
+                    if (!joinedMidRound) {
+                        showVotingDialog(parsed.data.votingPlayers || parsed.data.players);
+                    } else {
+                        // Show message that player can't vote
+                        waitChooseDialog.style.visibility = "visible";
+                        waitChooseDrawerSpan.innerHTML = "شما از وسط راند وارد بازی شدید<br>نمی‌توانید رای دهید";
+                    }
+                } else if (parsed.type === "voting-end") {
+                    // SpyDrawer: Voting phase has ended
+                    hideVotingDialog();
+                    applyPlayers(parsed.data.players);
+                    // If joined mid-round, keep showing message
+                    if (joinedMidRound) {
+                        waitChooseDialog.style.visibility = "visible";
+                        waitChooseDrawerSpan.innerHTML = "شما از وسط راند وارد بازی شدید<br>تا راند بعدی صبر کنید";
+                    }
+                } else if (parsed.type === "next-turn") {
+                    setRoundEndTime(parsed.data.roundEndTime);
+
+                    //As soon as a turn starts, the round should be ongoing, so we make
+                    //sure that all types of dialogs, that indicate the game isn't
+                    //ongoing, are not visible anymore.
+                    unstartedDialog.style.visibility = "hidden";
+                    startDialog.style.visibility = "hidden";
+                    restartButton.style.display = "none";
+                    gameOverDialog.style.visibility = "hidden";
+
+                    //If a player doesn't choose, the dialog will still be up.
+                    wordDialog.style.visibility = "hidden";
+                    playWav('{{.RootPath}}/resources/end-turn.wav');
+
+                    clear(context);
+                    clearList();
+                    gameState = "ongoing";
+                    round = parsed.data.round;
+                    updateRoundsDisplay();
+                    applyPlayers(parsed.data.players);
+
+                    //Show additional dialog, that another user (drawer) is choosing a word
+                    // If player joined mid-round, show special message instead
+                    if (joinedMidRound) {
+                        waitChooseDrawerSpan.innerHTML = "شما از وسط راند وارد بازی شدید<br>تا راند بعدی صبر کنید";
+                    } else {
+                        waitChooseDrawerSpan.innerText = drawerName + " در حال انتخاب کلمه است";
+                    }
+                    waitChooseDialog.style.visibility = "visible";
+
+                    // Don't clear word container - keep showing the word until a new one is chosen
+                    // The word will be updated when the next drawing-turn event arrives
+
+                    showRoundEndMessage(parsed.data.previousWord);
+                    allowDrawing = false;
+                    updateCursor();
+                } else if (parsed.type === "your-turn") {
+                    playWav('{{.RootPath}}/resources/your-turn.wav');
+                    waitChooseDialog.style.visibility = "hidden";
+                    promptWords(parsed.data[0], parsed.data[1], parsed.data[2], parsed.data[3], parsed.data[4]);
+                } else if (parsed.type === "drawing") {
+                    applyDrawData(parsed.data);
+                    requestedForRedraw = false
+                } else if (parsed.type === "kick-vote") {
+                    if (parsed.data.playerId === ownID && parsed.data.voteCount >= parsed.data.requiredVoteCount) {
+                        alert('{{.Translation.Get "self-kicked"}}');
+                        document.location.href = "{{.RootPath}}/";
+                    } else {
+                        let kickMessage = '{{.Translation.Get "kick-vote"}}'.format(parsed.data.voteCount, parsed.data.requiredVoteCount, parsed.data.playerName);
+                        if (parsed.data.voteCount >= parsed.data.requiredVoteCount) {
+                            kickMessage += ' {{.Translation.Get "player-kicked"}}';
+                        }
+                        appendMessage("system-message", '{{.Translation.Get "system"}}', kickMessage);
+                    }
+                } else if (parsed.type === "owner-change") {
+                    ownerID = parsed.data.playerId;
+                    updateButtonVisibilities();
+                    appendMessage("system-message", '{{.Translation.Get "system"}}', '{{.Translation.Get "owner-change"}}'.format(parsed.data.playerName));
+                } else if (parsed.type === "drawer-kicked") {
+                    appendMessage("system-message", '{{.Translation.Get "system"}}', '{{.Translation.Get "drawer-kicked"}}');
+                } else if (parsed.type === "lobby-settings-changed") {
+                    votekickEnabled = parsed.data.enableVotekick;
+                    rounds = parsed.data.rounds;
+                    updateRoundsDisplay();
+                    updateButtonVisibilities();
+                    appendMessage("system-message", '{{.Translation.Get "system"}}', '{{.Translation.Get "lobby-settings-changed"}}\n\n'
+                        + '{{.Translation.Get "drawing-time-setting"}}: ' + parsed.data.drawingTime + "\n"
+                        + '{{.Translation.Get "rounds-setting"}}: ' + parsed.data.rounds + "\n"
+                        + '{{.Translation.Get "public-lobby-setting"}}: ' + parsed.data.public + "\n"
+                        + '{{.Translation.Get "enable-votekick-setting"}}: ' + parsed.data.enableVotekick + "\n"
+                        + '{{.Translation.Get "max-players-setting"}}: ' + parsed.data.maxPlayers + "\n"
+                        + '{{.Translation.Get "custom-words-chance-setting"}}: ' + parsed.data.customWordsChance + "%\n"
+                        + '{{.Translation.Get "players-per-ip-limit-setting"}}: ' + parsed.data.clientsPerIpLimit);
+                }
+            }
+        };
+
+        function showRoundEndMessage(previousWord) {
+            //Happens if there has been no previous round.
+            if (previousWord === null) {
+                return;
+            }
+
+            if (previousWord === "") {
+                appendMessage("system-message", null, '{{.Translation.Get "round-over"}}');
+            } else {
+                appendMessage("system-message", null, '{{.Translation.Get "round-over-no-word"}}'.format(previousWord));
+            }
+        }
+
+        function getPlayer(playerID) {
+            for (let i = 0; i < cachedPlayers.length; i++) {
+                let player = cachedPlayers[i];
+                if (player.id === playerID) {
+                    return player;
+                }
+            }
+
+            return null;
+        }
+
+        //In the initial implementation we used a timestamp to know when
+        //the round will end. The problem with that approach was that the
+        //clock on client and server was often not in sync. The second
+        //approach was to instead send milliseconds left and keep counting
+        //them down each 500 milliseconds. The problem with this approach, was
+        //that there could potentially be timing mistakes while counting down.
+        //What we do instead is use our local date, add the timeLeft to it and
+        //repeatdly recaculate the timeLeft using the roundEndTime and the
+        //current time. This way we won't have any calculation errors.
+        //
+        //FIXME The only leftover issue is that ping isn't taken into
+        //account, however, that's no biggie for now.
+        function setRoundEndTime(timeLeftMs) {
+            roundEndTime = Date.now()+timeLeftMs;
+        }
+
+        function handleReadyEvent(ready) {
+            setRoundEndTime(ready.roundEndTime);
+            ownerID = ready.ownerId;
+            setUsernameLocally(ready.playerName);
+            allowDrawing = ready.allowDrawing;
+            ownID = ready.playerId;
+            round = ready.round;
+            rounds = ready.rounds;
+            gameState = ready.gameState;
+            votekickEnabled = ready.votekickEnabled;
+            joinedMidRound = ready.joinedMidRound || false; // Track if joined mid-round
+            updateRoundsDisplay();
+            updateButtonVisibilities();
+            
+            // If joined mid-round, show special message
+            if (joinedMidRound && gameState === "ongoing") {
+                waitChooseDialog.style.visibility = "visible";
+                waitChooseDrawerSpan.innerHTML = "شما از وسط راند وارد بازی شدید<br>تا راند بعدی صبر کنید";
+            }
+            
+            // Try to get word from current drawing turn if available
+            // This handles mid-round joins where round-start wasn't received
+            if (gameState === "ongoing" && !currentWord && ready.players) {
+                // Check if there's a current word from the lobby state
+                // The word should come from drawing-turn event, but let's also check ready data
+                const ownPlayer = ready.players.find(p => p.id === ownID);
+                if (ownPlayer) {
+                    isSpyPlayer = ownPlayer.isSpy === true;
+                }
+            }
+
+            if (ready.players && ready.players.length) {
+                applyPlayers(ready.players);
+                // Set local color from player's assigned color
+                const ownPlayer = ready.players.find(p => p.id === ownID);
+                if (ownPlayer && ownPlayer.color) {
+                    const colorHex = rgbColorObjectToHexString(ownPlayer.color);
+                    setColor(colorHex);
+                    // Hide color picker in SpyDrawer (players use assigned colors)
+                    colorPicker.style.display = "none";
+                }
+            }
+            if (ready.currentDrawing && ready.currentDrawing.length) {
+                applyDrawData(ready.currentDrawing);
+            }
+            if (ready.wordHints && ready.wordHints.length) {
+                applyWordHints(ready.wordHints);
+            }
+            updateCursor();
+
+            if (ready.gameState === "unstarted") {
+                if (ownerID === ownID) {
+                    startDialog.style.visibility = "visible";
+                } else {
+                    unstartedDialog.style.visibility = "visible";
+                }
+            } else if (ready.gameState === "gameOver") {
+                gameOverDialog.style.visibility = "visible";
+                if (ownerID === ownID) {
+                    restartButton.style.display = "block";
+                }
+
+                gameOverScoreboard.innerHTML = "";
+
+                //Copying array so we can sort.
+                let players = cachedPlayers.slice();
+                players.sort((a, b) => {
+                    return a.rank - b.rank;
+                });
+
+                //Show at least 2 players, but up to 5.
+                const maxScoreboardSize = 5;
+
+                for (let i = 0; i < players.length; i++) {
+                    let player = players[i];
+                    if (!player.connected) {
+                        continue;
+                    }
+
+                    const isSelf = player.id === ownID;
+
+                    //Even if we don't want to show a player-entry, we still need to iterate
+                    //over all players to handle the dialog titles.
+                    if (player.rank <= maxScoreboardSize) {
+                        let newScoreboardEntry = document.createElement("div");
+                        newScoreboardEntry.classList.add("gameover-scoreboard-entry");
+                        if (isSelf) {
+                            newScoreboardEntry.classList.add("gameover-scoreboard-entry-self");
+                        }
+
+                        let scoreboardRankDiv = document.createElement("div");
+                        scoreboardRankDiv.classList.add("gameover-scoreboard-rank");
+                        scoreboardRankDiv.innerText = player.rank;
+                        newScoreboardEntry.appendChild(scoreboardRankDiv);
+
+                        let scoreboardNameDiv = document.createElement("div");
+                        scoreboardNameDiv.classList.add("gameover-scoreboard-name");
+                        scoreboardNameDiv.innerText = player.name;
+                        newScoreboardEntry.appendChild(scoreboardNameDiv);
+
+                        let scoreboardScoreSpan = document.createElement("span");
+                        scoreboardScoreSpan.classList.add("gameover-scoreboard-score");
+                        scoreboardScoreSpan.innerText = player.score;
+                        newScoreboardEntry.appendChild(scoreboardScoreSpan);
+
+                        gameOverScoreboard.appendChild(newScoreboardEntry);
+                    }
+
+                    if (isSelf) {
+                        if (player.rank == 1) {
+                            gameOverDialogTitle.innerText = '{{.Translation.Get "game-over-win"}}';
+                        } else {
+                            
+                            gameOverDialogTitle.innerText = '{{.Translation.Get "game-over"}}'.format(player.rank, player.score);
+                        }
+                    }
+                }
+            } else if (ready.gameState === "ongoing") {
+                // The wordHints are empty if the round is not started (no word choosen)
+                if (ready.wordHints === null) {
+                    for (let i = 0; i < ready.players.length; i++) {
+                        let player = ready.players[i];
+
+                        // check if the actual player is not drawing
+                        if ((player.id === ownID) && (player.state != "drawing")) {
+                            //Show additional dialog, that another user (drawer) is choosing a word
+                            waitChooseDrawerSpan.innerText = drawerName;
+                            waitChooseDialog.style.visibility = "visible";
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        function updateButtonVisibilities() {
+            if (ownerID === ownID) {
+                lobbySettingsButton.style.display = "initial";
+            } else {
+                lobbySettingsButton.style.display = "none";
+            }
+
+            if (votekickEnabled) {
+                kickButton.style.display = "initial";
+            } else {
+                kickButton.style.display = "none";
+            }
+        }
+
+        function promptWords(wordOne, wordTwo, wordThree, wordFour, wordFive) {
+            wordButtonZero.textContent = wordOne;
+            if(wordTwo)
+                wordButtonOne.textContent = wordTwo;
+            else
+                wordButtonOne.hidden = true
+            if(wordThree)
+                wordButtonTwo.textContent = wordThree;
+            else
+                wordButtonTwo.hidden = true
+            if(wordFour)
+                wordButtonThree.textContent = wordFour;
+            else
+                wordButtonThree.hidden = true
+            if(wordFive)
+                wordButtonFour.textContent = wordFive;
+            else
+                wordButtonFour.hidden = true
+            wordDialog.style.visibility = "visible";
+        }
+
+        function playWav(file) {
+            if (sound) {
+                let audio = new Audio(file);
+                audio.type = 'audio/wav';
+                audio.play();
+            }
+        }
+
+        window.setInterval(() => {
+            if (gameState === "ongoing") {
+                const msLeft = roundEndTime - Date.now();
+                const secondsLeft = Math.floor(msLeft / 1000);                
+                timeLeftValue.innerText = "" + secondsLeft
+            } else {
+                timeLeftValue.innerText = "∞";
+            }
+        }, 500);
+
+        //appendMessage adds a new message to the message container. If the
+        //message amount is too high, we cut off a part of the messages to
+        //prevent lagging and useless memory usage.
+        function appendMessage(styleClass, author, message) {
+            if (messageContainer.childElementCount >= 100) {
+                messageContainer.removeChild(messageContainer.firstChild);
+            }
+
+            let newMessageDiv = document.createElement("div");
+            newMessageDiv.classList.add("message");
+            if (styleClass !== null && styleClass !== "") {
+                newMessageDiv.classList.add(styleClass);
+            }
+
+            if (author !== null && author !== "") {
+                let authorNameSpan = document.createElement("span");
+                authorNameSpan.classList.add("chat-name");
+                authorNameSpan.innerText = author;
+                newMessageDiv.appendChild(authorNameSpan);
+            }
+
+            let messageSpan = document.createElement("span");
+            messageSpan.classList.add("message-content");
+            
+            // For system messages or messages from "سیستم", try to colorize player names
+            if (cachedPlayers && (styleClass === "system-message" || author === "سیستم")) {
+                messageSpan.innerHTML = colorizePlayerNamesInMessage(message, cachedPlayers);
+            } else {
+                messageSpan.innerText = message;
+            }
+            
+            newMessageDiv.appendChild(messageSpan);
+
+            messageContainer.appendChild(newMessageDiv);
+        }
+
+        // Colorize player names in system messages
+        function colorizePlayerNamesInMessage(message, players) {
+            let result = message;
+            // Escape HTML in the message first
+            const div = document.createElement("div");
+            div.textContent = message;
+            result = div.innerHTML;
+            
+            // Find and colorize each player name
+            players.forEach(player => {
+                if (player.name) {
+                    // Create a regex to find the player name (word boundary to avoid partial matches)
+                    const regex = new RegExp('\\b' + escapeRegExp(player.name) + '\\b', 'g');
+                    if (result.includes(player.name)) {
+                        const color = player.color ? `rgb(${player.color.r}, ${player.color.g}, ${player.color.b})` : '#000000';
+                        result = result.replace(regex, `<span style="color: ${color}; font-weight: bold;">${player.name}</span>`);
+                    }
+                }
+            });
+            
+            return result;
+        }
+
+        // Helper function to escape special regex characters
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        let cachedPlayers;
+
+        function applyPlayers(players) {
+            playerContainer.innerHTML = "";
+            cachedPlayers = players;
+            
+            // SpyDrawer: Update local color from player's assigned color whenever players are updated
+            const ownPlayer = players.find(p => p.id === ownID);
+            if (ownPlayer && ownPlayer.color) {
+                const colorHex = rgbColorObjectToHexString(ownPlayer.color);
+                setColorWithoutUpdatingColorPicker(colorHex);
+            }
+            
+            players.forEach(player => {
+                //We don't wanna show the disconnected players.
+                if (!player.connected) {
+                    return;
+                }
+
+                let playerDiv = document.createElement("div");
+
+                playerDiv.classList.add("player");
+                if (player.state === "standby") {
+                    playerDiv.classList.add("player-done");
+                }
+
+                let rankSpan = document.createElement("span");
+                rankSpan.classList.add("rank");
+                rankSpan.innerText = player.rank;
+                rankSpan.style.marginLeft = "5px";
+                playerDiv.appendChild(rankSpan)
+
+                // Create name container with color indicator to the right
+                let nameContainer = document.createElement("span");
+                nameContainer.style.display = "inline-flex";
+                nameContainer.style.alignItems = "center";
+                nameContainer.style.gap = "8px";
+                nameContainer.style.marginLeft = "8px";
+
+                let playernameSpan = document.createElement("span");
+                playernameSpan.classList.add("playername");
+                playernameSpan.innerText = player.name;
+                playernameSpan.id = "playername-" + player.id;
+                if (player.id === ownID) {
+                    playernameSpan.classList.add("playername-self");
+                }
+                nameContainer.appendChild(playernameSpan);
+
+                // Show player color indicator to the right of name
+                if (player.color) {
+                    let colorIndicator = document.createElement("span");
+                    colorIndicator.style.display = "inline-block";
+                    colorIndicator.style.width = "16px";
+                    colorIndicator.style.height = "16px";
+                    colorIndicator.style.borderRadius = "50%";
+                    colorIndicator.style.backgroundColor = `rgb(${player.color.r}, ${player.color.g}, ${player.color.b})`;
+                    colorIndicator.style.border = "2px solid #333";
+                    colorIndicator.style.flexShrink = "0";
+                    colorIndicator.title = "رنگ بازیکن";
+                    nameContainer.appendChild(colorIndicator);
+                }
+
+                playerDiv.appendChild(nameContainer);
+
+                // Show spy indicator if revealed (after voting)
+                if (player.isSpy && gameState === "gameOver") {
+                    let spyLabel = document.createElement("span");
+                    spyLabel.style.marginLeft = "5px";
+                    spyLabel.style.color = "red";
+                    spyLabel.style.fontWeight = "bold";
+                    spyLabel.innerText = "(SPY)";
+                    playerDiv.appendChild(spyLabel);
+                }
+
+                let scoreAndStatusDiv = document.createElement("div");
+                scoreAndStatusDiv.classList.add("score-and-status");
+                playerDiv.appendChild(scoreAndStatusDiv);
+
+                let playerscoreDiv = document.createElement("div");
+                playerscoreDiv.classList.add("playerscore-group");
+                scoreAndStatusDiv.appendChild(playerscoreDiv);
+
+                let playerscoreSpan = document.createElement("span");
+                playerscoreSpan.classList.add("playerscore");
+                playerscoreSpan.innerText = player.score;
+                playerscoreDiv.appendChild(playerscoreSpan);
+
+                let lastPlayerscoreSpan = document.createElement("span");
+                lastPlayerscoreSpan.classList.add("last-turn-score");
+                lastPlayerscoreSpan.innerText = '{{.Translation.Get "last-turn"}}'.format(player.lastScore);
+                playerscoreDiv.appendChild(lastPlayerscoreSpan);
+
+                if (player.state === "drawing") {
+                    drawerID = player.id;
+                    drawerName = player.name;
+                    scoreAndStatusDiv.appendChild(document.createTextNode("✏️"));
+                } else if (player.state === "standby") {
+                    scoreAndStatusDiv.appendChild(document.createTextNode("✔️"));
+                }
+
+                playerContainer.appendChild(playerDiv);
+            });
+        }
+
+        function hideVotingDialog() {
+            const votingDialog = document.getElementById("voting-dialog");
+            if (votingDialog) {
+                votingDialog.style.visibility = "hidden";
+            }
+        }
+
+        function showVotingDialog(players) {
+            // Create voting dialog
+            let votingDialog = document.getElementById("voting-dialog");
+            if (!votingDialog) {
+                votingDialog = document.createElement("div");
+                votingDialog.id = "voting-dialog";
+                votingDialog.classList.add("center-dialog");
+                centerDialogs.appendChild(votingDialog);
+            }
+
+            let title = document.createElement("span");
+            title.classList.add("dialog-title");
+            title.innerText = "رای دهید برای جاسوس!";
+            votingDialog.innerHTML = "";
+            votingDialog.appendChild(title);
+
+            let content = document.createElement("div");
+            content.classList.add("center-dialog-content");
+            content.style.display = "flex";
+            content.style.flexDirection = "column";
+            content.style.gap = "10px";
+
+            let instruction = document.createElement("p");
+            instruction.innerText = "فکر می‌کنید جاسوس کیست؟";
+            content.appendChild(instruction);
+
+            let playerList = document.createElement("div");
+            playerList.style.display = "flex";
+            playerList.style.flexDirection = "column";
+            playerList.style.gap = "5px";
+
+            players.forEach(player => {
+                // SpyDrawer: spectators can't be voted for
+                if (player.connected && player.id !== ownID && player.state !== "spectator") {
+                    let voteButton = document.createElement("button");
+                    voteButton.classList.add("dialog-button");
+                    voteButton.style.width = "100%";
+                    voteButton.style.textAlign = "left";
+                    voteButton.style.padding = "10px";
+                    
+                    let buttonContent = document.createElement("span");
+                    if (player.color) {
+                        let colorDot = document.createElement("span");
+                        colorDot.style.display = "inline-block";
+                        colorDot.style.width = "15px";
+                        colorDot.style.height = "15px";
+                        colorDot.style.borderRadius = "50%";
+                        colorDot.style.backgroundColor = `rgb(${player.color.r}, ${player.color.g}, ${player.color.b})`;
+                        colorDot.style.marginRight = "8px";
+                        colorDot.style.verticalAlign = "middle";
+                        buttonContent.appendChild(colorDot);
+                    }
+                    buttonContent.appendChild(document.createTextNode(player.name));
+                    voteButton.appendChild(buttonContent);
+                    
+                    voteButton.onclick = () => {
+                        // SpyDrawer: Prevent mid-round joiners from voting
+                        if (joinedMidRound) {
+                            alert("شما از وسط راند وارد بازی شدید و نمی‌توانید رای دهید");
+                            return;
+                        }
+                        socket.send(JSON.stringify({
+                            type: "vote",
+                            data: player.id
+                        }));
+                        votingDialog.style.visibility = "hidden";
+                    };
+                    playerList.appendChild(voteButton);
+                }
+            });
+
+            content.appendChild(playerList);
+            votingDialog.appendChild(content);
+            votingDialog.style.visibility = "visible";
+        }
+
+        function updateRoundsDisplay() {
+            roundSpan.innerText = round;
+            maxRoundSpan.innerText = rounds;
+        }
+
+        function applyWordHints(wordHints) {
+            wordContainer.innerHTML = "";
+            wordHints.forEach(hint => {
+                let hintSpan = document.createElement("span");
+                hintSpan.classList.add("guess-letter");
+                if (hint.character === 0) {
+                    hintSpan.classList.add("guess-letter-underline");
+                    hintSpan.innerHTML = "&nbsp;";
+                } else {
+                    if (hint.underline) {
+                        hintSpan.classList.add("guess-letter-underline");
+                    }
+                    hintSpan.innerText = String.fromCharCode(hint.character);
+                }
+
+                wordContainer.appendChild(hintSpan);
+            });
+        }
+
+        function applyDrawData(drawElements) {
+            clear(context);
+            drawElements
+                .forEach(drawElement => {
+                    let drawData = drawElement.data;
+                    if (drawElement.type === "fill") {
+                        list.push(drawElement)
+                        context.fillFlood(drawData.x * scaleDownFactor(), drawData.y * scaleDownFactor(), drawData.color);
+                    } else if (drawElement.type === "line") {
+                        drawLine(context, drawData.fromX * scaleDownFactor(),
+                            drawData.fromY * scaleDownFactor(), drawData.toX * scaleDownFactor(),
+                            drawData.toY * scaleDownFactor(), drawData.color, drawData.lineWidth * scaleDownFactor());
+                        list.push(drawElement);
+                    } else if(drawElement.type === "save") {
+                        list.push(drawElement);
+                    } else {
+                        console.log("Unknown draw element type: " + drawData.type);
+                    }
+                });
+        }
+
+        let lastX = 0;
+        let lastY = 0;
+        
+        let touchID = null;
+
+        function onTouchStart(event) {
+            //We only allow a single touch
+            if (allowDrawing && touchID == null && localTool !== fillBucket) {
+                const touch = event.touches[0];
+                touchID = touch.identifier;
+
+                // calculate the offset coordinates based on client touch position and drawing board client origin
+                const clientRect = drawingBoard.getBoundingClientRect();
+                lastX = (touch.clientX - clientRect.left);
+                lastY = (touch.clientY - clientRect.top);
+            }
+        }
+
+        function onTouchMove(event) {
+            // Prevent moving, scrolling or zooming the page
+            event.preventDefault();
+
+            if (allowDrawing) {
+                for (let i = event.changedTouches.length - 1; i >= 0; i--) {
+                    if (event.changedTouches[i].identifier === touchID) {
+                        const touch = event.changedTouches[i];
+
+                        // calculate the offset coordinates based on client touch position and drawing board client origin
+                        const clientRect = drawingBoard.getBoundingClientRect();
+                        const offsetX = (touch.clientX - clientRect.left);
+                        const offsetY = (touch.clientY - clientRect.top);
+
+                        // drawing functions must check for context boundaries
+                        drawLineAndSendEvent(context, lastX, lastY, offsetX, offsetY, localColor, localLineWidth);
+                        lastX = offsetX;
+                        lastY = offsetY;
+
+                        return;
+                    }
+                }
+            }
+        }
+
+        function onTouchEnd(event) {
+            for (let i = event.changedTouches.length - 1; i >= 0; i--) {
+                if (event.changedTouches[i].identifier === touchID) {
+                    touchID = null;
+                    return;
+                }
+            }
+        }
+
+        drawingBoard.addEventListener('touchend', onTouchEnd);
+        drawingBoard.addEventListener('touchcancel', onTouchEnd);
+        drawingBoard.addEventListener('touchstart', onTouchStart);
+        drawingBoard.addEventListener('touchmove', onTouchMove);
+
+        function onMouseDown(event) {
+            if(allowDrawing && event.buttons === 1)
+            {
+                socket.send(JSON.stringify({
+                    type: "save",
+                }));
+                list.push({type:"save"});
+                if(localTool !== fillBucket) {
+                    const clientRect = drawingBoard.getBoundingClientRect();
+                    lastX = event.clientX - clientRect.left;
+                    lastY = event.clientY - clientRect.top;
+                }
+            }
+        }
+
+        function onMouseMove(event) {
+            //event.button === 0 could be wrong, as it can also be the uninitialized state.
+            //Therefore we use event.buttons, which works differently.
+            if (allowDrawing && event.buttons === 1 && localTool !== fillBucket) {
+                // calculate the offset coordinates based on client mouse position and drawing board client origin
+                const clientRect = drawingBoard.getBoundingClientRect();
+                const offsetX = (event.clientX - clientRect.left);
+                const offsetY = (event.clientY - clientRect.top);
+
+                // drawing functions must check for context boundaries
+                drawLineAndSendEvent(context, lastX, lastY, offsetX, offsetY, localColor, localLineWidth);
+                lastX = offsetX;
+                lastY = offsetY;
+            }
+        }
+
+        function onMouseClick(event) {
+            //event.buttons won't work here, since it's always 0. Since we
+            //have a click event, we can be sure that we actually had a button
+            //clicked and 0 won't be the uninitialized state.
+            if (allowDrawing && event.button === 0) {
+                if (localTool === fillBucket) {
+                    fillAndSendEvent(context, event.offsetX, event.offsetY, localColor);
+                } else {
+                    drawLineAndSendEvent(context, event.offsetX, event.offsetY,
+                        event.offsetX, event.offsetY, localColor, localLineWidth);
+                }
+            }
+        }
+        function KeyPress(e) {
+            if (e.keyCode === 90 && e.ctrlKey){
+                // Only allow undo if it's your turn
+                if (allowDrawing) {
+                    undo()
+                }
+            }
+        }
+
+        function undo(){
+            // Only send undo if it's your turn
+            if (allowDrawing) {
+                socket.send(JSON.stringify({
+                    type: "undo",
+                }));
+                // Don't call undoList() here - wait for server confirmation
+            }
+        }
+
+        document.onkeydown = KeyPress;
+        drawingBoard.addEventListener('mousedown', onMouseDown)
+        drawingBoard.addEventListener('mousemove', onMouseMove);
+        drawingBoard.addEventListener('mouseleave', onMouseMove);
+        drawingBoard.addEventListener('click', onMouseClick);
+
+        function onGlobalMouseMove(event) {
+            const clientRect = drawingBoard.getBoundingClientRect();
+            lastX = Math.min(clientRect.width - 1, Math.max(0, event.clientX - clientRect.left));
+            lastY = Math.min(clientRect.height - 1, Math.max(0, event.clientY - clientRect.top));
+        }
+
+        //necessary for mousemove to not use the previous exit coordinates.
+        //If this is done via mouseleave and mouseenter of the
+        //drawingBoard, the lines will end too early on leave and start
+        //too late on exit.
+        window.addEventListener('mousemove', onGlobalMouseMove);
+
+        function handleCanvasResize() {
+            //Resize canvas HTML element properly.
+            drawingBoard.width = drawingBoard.clientWidth;
+            drawingBoard.height = drawingBoard.clientHeight;
+            setLineWidth(localLineWidthUnscaled);
+
+            //Ugly workaround to fix https://github.com/scribble-rs/scribble.rs/issues/256
+            //Sadly I don't know how to do this with CSS.
+            //I've had the same workaround a while ago, but deleted it thinking it
+            //wasn't needed anymore, however, without this, the chat container will expand
+            //it's own parent, causing overflow-y to not take effect, since the parent has
+            //no height constraint.
+            //This workaround doesn't affect the portrait view.
+            chat.style.maxHeight = drawingBoard.clientHeight+"px";
+        }
+
+        //Call intially to correct initial state
+        handleCanvasResize();
+
+        window.addEventListener("resize", () => {
+            handleCanvasResize();
+            //Since the canvas gets cleared, we request the drawing again.
+            //Saving it locally would be wasteful and might slow down some
+            //clients due to a lot of memory allocation.
+            redrawCanvas()
+        }, false);
+
+
+        function clear(context) {
+            context.fillStyle = "#FFFFFF";
+            context.fillRect(0, 0, drawingBoard.width, drawingBoard.height);
+        }
+
+        function fillAndSendEvent(context, x, y, color) {
+            if (context.fillFlood(x, y, color)) {
+                let fillInstruction = {
+                    type: "fill",
+                    data: {
+                        x: scaelUpAndPrepareFloatForServer(x),
+                        y: scaelUpAndPrepareFloatForServer(y),
+                        color: color
+                    },
+                };
+                list.push(fillInstruction);
+                socket.send(JSON.stringify(fillInstruction));
+            }
+        }
+
+        function drawLineAndSendEvent(context, x1, y1, x2, y2, color, lineWidth) {
+            if (localTool === rubber) {
+                color = rubberColor;
+            }
+
+            drawLine(context, x1, y1, x2, y2, color, lineWidth);
+
+            let drawInstruction = {
+                type: "line",
+                data: {
+                    fromX: scaelUpAndPrepareFloatForServer(x1),
+                    fromY: scaelUpAndPrepareFloatForServer(y1),
+                    toX: scaelUpAndPrepareFloatForServer(x2),
+                    toY: scaelUpAndPrepareFloatForServer(y2),
+                    color: color,
+                    lineWidth: scaelUpAndPrepareFloatForServer(lineWidth),
+                }
+            };
+
+            list.push(drawInstruction);
+            socket.send(JSON.stringify(drawInstruction));
+        }
+
+
+        function drawLine(context, x1, y1, x2, y2, color, lineWidth) {
+            // the coordinates must be whole numbers to improve performance.
+            // also, decimals as coordinates is not making sense.
+            x1 = Math.floor(x1);
+            y1 = Math.floor(y1);
+            x2 = Math.floor(x2);
+            y2 = Math.floor(y2);
+            lineWidth = Math.ceil(lineWidth);
+
+            // calculate bounding box
+            let left = Math.max(0, Math.min(context.canvas.width, Math.min(x1, x2) - lineWidth));
+            let top = Math.max(0, Math.min(context.canvas.height, Math.min(y1, y2) - lineWidth));
+            let right = Math.max(0, Math.min(context.canvas.width, Math.max(x1, x2) + lineWidth));
+            let bottom = Math.max(0, Math.min(context.canvas.height, Math.max(y1, y2) + lineWidth));
+
+            // off canvas, so don't draw anything
+            if (right - left === 0 || bottom - top === 0) {
+                return;
+            }
+
+            const circleMap = generateCircleMap(Math.floor(lineWidth / 2));
+            const offset = Math.floor(circleMap.length / 2);
+            const imageData = context.getImageData(left, top, right - left, bottom - top);
+
+            for (let ix = 0; ix < circleMap.length; ix++) {
+                for (let iy = 0; iy < circleMap[ix].length; iy++) {
+                    if (circleMap[ix][iy] === 1 || (x1 === x2 && y1 === y2 && circleMap[ix][iy] === 2)) {
+                        const newX1 = x1 + ix - offset - left;
+                        const newY1 = y1 + iy - offset - top;
+                        const newX2 = x2 + ix - offset - left;
+                        const newY2 = y2 + iy - offset - top;
+                        drawBresenhamLine(imageData, newX1, newY1, newX2, newY2, color);
+                    }
+                }
+            }
+            context.putImageData(imageData, left, top);
+        }
+
+        function drawBresenhamLine(imageData, x1, y1, x2, y2, color) {
+            const dx = Math.abs(x2 - x1);
+            const dy = Math.abs(y2 - y1);
+            const sx = (x1 < x2) ? 1 : -1;
+            const sy = (y1 < y2) ? 1 : -1;
+            let err = dx - dy;
+
+            while (true) {
+                //check if pixel is inside the canvas
+                if (!(x1 < 0 || x1 >= imageData.width || y1 < 0 || y1 >= imageData.height)) {
+                    setPixel(imageData, x1, y1, color);
+                }
+
+                if ((x1 === x2) && (y1 === y2)) break;
+                const e2 = 2 * err;
+                if (e2 > -dy) {
+                    err -= dy;
+                    x1 += sx;
+                }
+                if (e2 < dx) {
+                    err += dx;
+                    y1 += sy;
+                }
+            }
+        }
+
+        function generateCircleMap(radius) {
+            let circleData = [];
+
+            for (let x = 0; x < 2 * radius; x++) {
+                circleData[x] = [];
+                for (let y = 0; y < 2 * radius; y++) {
+                    const distanceToRadius = Math.sqrt(Math.pow(radius - x, 2) + Math.pow(radius - y, 2));
+                    if (distanceToRadius > radius) {
+                        circleData[x][y] = 0;
+                    } else if (distanceToRadius < radius - 2) {
+                        circleData[x][y] = 2;
+                    } else {
+                        circleData[x][y] = 1;
+                    }
+                }
+            }
+
+            return circleData;
+        }
+
+        function setPixel(imageData, x, y, color) {
+            const offset = (y * imageData.width + x) * 4;
+            imageData.data[offset] = color.r;
+            imageData.data[offset + 1] = color.g;
+            imageData.data[offset + 2] = color.b;
+            //We never want transparency, therefore alpha is always 255.
+            imageData.data[offset + 3] = 255;
+        }
+
+        let sizeSlot = 8;
+        function wheelSize(e) {
+            event.preventDefault();
+            sizeSlot += Math.min(Math.max(-1, e.deltaY), 1);
+            if (sizeSlot < 6) {
+                sizeSlot = 6;
+            } else if (sizeSlot > 32) {
+                sizeSlot = 32;
+            }
+
+            if(sizeSlot < 12)
+                n = 8
+            else if(sizeSlot < 20)
+                n = 16
+            else if(sizeSlot < 28)
+                n = 24
+            else
+                n = 32
+
+            document.getElementById('size-' + n + '-button').checked = true;
+            setLineWidth(sizeSlot);
+        }
+
+        drawingBoard.onwheel = wheelSize;
+
+        function copyText(){
+            var copyText = document.getElementById("id_text");
+            copyText.select();
+            copyText.setSelectionRange(0, 99999); /*For mobile devices*/
+            /* Copy the text inside the text field */
+            document.execCommand("copy");
+            copyText.value = "لینک کپی شد!"
+        }
+
+        function setId()
+        {
+            document.getElementById("id_text").value = window.location.href;
+        }
+
+        function setDefault()
+        {
+            document.getElementById("id_text").value = "لینک اتاق"
+        }
+
+        function showToast(message, duration = 3000) {
+            // Remove existing toast if any
+            const existingToast = document.getElementById("toast-message");
+            if (existingToast) {
+                existingToast.remove();
+            }
+
+            // Create toast element
+            const toast = document.createElement("div");
+            toast.id = "toast-message";
+            toast.style.position = "fixed";
+            toast.style.top = "50%";
+            toast.style.left = "50%";
+            toast.style.transform = "translate(-50%, -50%)";
+            toast.style.backgroundColor = "rgba(0, 0, 0, 0.8)";
+            toast.style.color = "white";
+            toast.style.padding = "20px 30px";
+            toast.style.borderRadius = "10px";
+            toast.style.zIndex = "10000";
+            toast.style.fontSize = "18px";
+            toast.style.fontWeight = "bold";
+            toast.style.textAlign = "center";
+            toast.style.boxShadow = "0 4px 6px rgba(0, 0, 0, 0.3)";
+            toast.style.maxWidth = "80%";
+            toast.innerText = message;
+
+            document.body.appendChild(toast);
+
+            // Remove toast after duration
+            setTimeout(() => {
+                toast.style.opacity = "0";
+                toast.style.transition = "opacity 0.3s";
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }, duration);
+        }
+
+    </script>
+</body>
+
+</html>
+{{end}}
