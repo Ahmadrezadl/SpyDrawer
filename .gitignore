@@ -1,6 +1,5 @@
 pkged.go
-bekeshbekesh.exe
-bekeshbekesh
+*.exe
 __debug_bin
 .idea/
 playground/

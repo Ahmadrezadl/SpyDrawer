@@ -1,5 +1,5 @@
 <p align="center">
-<img src="https://raw.githubusercontent.com/SibZamini/bekeshbekesh/master/frontend/resources/JasKesh.png">
+<img src="https://raw.githubusercontent.com/Ahmadrezadl/SpyDrawer/master/frontend/resources/JasKesh.png">
 </p>
 
 
@@ -29,7 +29,7 @@ make build
 
 برای ویندوز با کامند زیر بیلد بگیرید
 ```shell
-go build -o bekeshbekesh.exe .
+go build -o SpyDrawer.exe .
 ```
 
 ران کردن با گو

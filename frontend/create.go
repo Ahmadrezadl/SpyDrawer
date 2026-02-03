@@ -3,10 +3,10 @@ package frontend
 import (
 	"net/http"
 
-	"github.com/SibZamini/bekeshbekesh/api"
-	"github.com/SibZamini/bekeshbekesh/game"
-	"github.com/SibZamini/bekeshbekesh/state"
-	"github.com/SibZamini/bekeshbekesh/translations"
+	"github.com/Ahmadrezadl/SpyDrawer/api"
+	"github.com/Ahmadrezadl/SpyDrawer/game"
+	"github.com/Ahmadrezadl/SpyDrawer/state"
+	"github.com/Ahmadrezadl/SpyDrawer/translations"
 )
 
 //This file contains the API for the official web client.

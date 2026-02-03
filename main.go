@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/SibZamini/bekeshbekesh/api"
-	"github.com/SibZamini/bekeshbekesh/frontend"
+	"github.com/Ahmadrezadl/SpyDrawer/api"
+	"github.com/Ahmadrezadl/SpyDrawer/frontend"
 )
 
 func main() {
